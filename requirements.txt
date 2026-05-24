@@ -1,0 +1,2 @@
+# No third-party packages are required.
+# The backend uses Python standard library modules: http.server, sqlite3, json.

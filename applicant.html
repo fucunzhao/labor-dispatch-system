@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>求职者自助登记</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="public-page">
+  <main class="public-shell">
+    <section class="public-hero">
+      <div>
+        <p class="eyebrow">劳务中介智能客户服务系统</p>
+        <h1>求职者自助登记</h1>
+        <p>请填写真实求职信息，业务员会根据你的地区、可到岗时间、岗位偏好和工作要求，为你匹配合适企业岗位。</p>
+        <p id="agencyHint" class="item-meta"></p>
+      </div>
+      <div class="public-card">
+        <strong>登记后可以匹配</strong>
+        <p>长期工、短期工、周结岗位、坐班岗位、注塑、质检、物流、汽配、装配等企业用工需求。</p>
+      </div>
+    </section>
+
+    <section class="public-card">
+      <form class="public-form" id="applicantForm">
+        <div class="form-grid">
+          <label>姓名<input name="name" required placeholder="请输入姓名"></label>
+          <label>手机号<input name="phone" required inputmode="tel" placeholder="业务员联系你的电话"></label>
+          <label>性别<select name="gender" required><option value="">请选择</option><option>男</option><option>女</option></select></label>
+          <label>年龄<input name="age" required type="number" min="16" max="65" placeholder="例如：28"></label>
+          <label>当前所在地区<input name="location" required placeholder="例如：柳东、柳州、花岭"></label>
+          <label>可到岗时间<input name="available" required placeholder="例如：今天、明天、下周"></label>
+          <label>期望工作周期<select name="period" required><option>长期稳定</option><option>1-3个月</option><option>7-15天</option><option>暑假工</option><option>周末兼职</option></select></label>
+          <label>期望岗位<input name="expectedRole" placeholder="例如：普工、质检、注塑、物流"></label>
+          <label>期望薪资<input name="salary" placeholder="例如：5000以上、周结优先"></label>
+          <label>是否需要住宿<select name="housing"><option>需要住宿</option><option>不需要住宿</option><option>都可以</option></select></label>
+        </div>
+        <label>工作经验/技能标签<textarea name="tags" placeholder="例如：注塑经验, 接受夜班, 坐班优先, 可周结, 有质检经验"></textarea></label>
+        <label>其他要求或备注<textarea name="note" placeholder="例如：不接受夜班、不能站班、希望离柳东近、需要包吃住等"></textarea></label>
+        <div class="success-box" id="successBox">登记成功。业务员会在人才库里看到你的资料，并根据企业用工需求联系你。</div>
+        <div class="public-actions">
+          <a class="ghost link-button" href="index.html">返回系统首页</a>
+          <button class="primary" type="submit">提交登记</button>
+        </div>
+      </form>
+    </section>
+  </main>
+  <sc

@@ -1,0 +1,8 @@
+{
+  "build": {
+    "type": "dockerfile"
+  },
+  "start": {
+    "cmd": "python server.py"
+  }
+}

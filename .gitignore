@@ -1,0 +1,8 @@
+__pycache__/
+.git/
+repo_git/
+*.pyc
+labor_service.db
+*.db-journal
+.env
+.DS_Store

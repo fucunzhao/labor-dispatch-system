@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>劳务中介智能客户服务系统 MVP</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">劳</span>
+      <div>
+        <strong>劳务智能中台</strong>
+        <small>MVP 工作台</small>
+      </div>
+    </div>
+    <nav class="nav" aria-label="主导航">
+      <button class="nav-item active" data-view="dashboard">总览</button>
+      <button class="nav-item" data-view="collector">模糊采集</button>
+      <button class="nav-item" data-view="calendar">全年用工日历</button>
+      <button class="nav-item" data-view="demands">企业需求</button>
+      <button class="nav-item" data-view="workers">求职者库</button>
+      <button class="nav-item" data-view="knowledge">私有知识库</button>
+      <button class="nav-item" data-view="account">账号管理</button>
+      <button class="nav-item" data-view="assistant">AI 知识库助手</button>
+    </nav>
+    <div class="side-note">
+      <strong>今日重点</strong>
+      <p id="sideSummary">正在整理业务数据...</p>
+    </div>
+  </aside>
+
+  <main class="app">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">企业用工需求 × 求职者数据库 × AI 本地知识库</p>
+        <h1 id="pageTitle">业务总览</h1>
+      </div>
+      <div class="top-actions">
+        <span class="badge" id="accountBadge">未登录</span>
+        <a class="ghost link-button" href="applicant.html" target="_blank">求职者自助登记</a>
+        <button class="ghost" id="resetDemo" data-write>恢复示例数据</button>
+        <button class="primary" data-open-modal="demandModal" data-write>新增用工需求</button>
+      </div>
+    </header>
+
+    <section class="view active" id="dashboard">
+      <div class="metrics" id="metrics"></div>
+      <div class="layout two-col">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>紧急缺口</h2>
+            <span>按开始日期和缺口排序</span>
+          </div>
+          <div id="urgentList" class="list"></div>
+        </section>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>推荐任务</h2>
+            <span>系统自动生成</span>
+          </div>
+          <div id="taskList" class="list"></div>
+        </section>
+      </div>
+    </section>
+
+    <section class="view" id="collector">
+      <div class="layout two-col">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>模糊输入采集</h2>
+            <span>粘贴微信文字或上传文本文件</span>
+          </div>
+          <div class="collector-tabs">
+            <button type="button" class="collector-tab active" data-fuzzy-kind="demand">企业用工信息</button>
+            <button type="button" class="collector-tab" data-fuzzy-kind="worker">求职者信息</button>
+          </div>
+          <div class="collector-form">
+            <label>上传文件
+              <input id="fuzzyFile" type="file" accept=".xlsx,.docx,.csv,.txt,.md,.json">
+            </label>
+            <label>整段文字
+              <textarea id="fuzzyText" placeholder="把企业招聘简章、求职者自述、微信群消息整段粘贴到这里"></textarea>
+            </label>
+            <div class="public-actions">
+              <button type="button" class="ghost" id="clearFuzzy">清空</button>
+              <button type="button" class="primary" id="parseFuzzy">自动识别</button>
+            </div>
+            <div class="success-box" id="fuzzyStatus"></div>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>识别说明</h2>
+            <span>第一阶段规则识别</span>
+          </div>
+          <div class="knowledge-block">
+            <strong>可识别内容</strong>
+            企业板块可识别企业名称、岗位、薪资、年龄、人数等；求职者板块可识别姓名、电话、年龄、地区、期望岗位、到岗时间等。
+          </div>
+          <div class="knowledge-block">
+            <strong>导入后沉淀</strong>
+            企业需求会进入全年日历和岗位知识库；求职者信息会进入人才库和求职者画像知识库。
+          </div>
+        </section>
+      </div>
+      <section class="panel collector-results">
+        <div class="panel-head">
+          <h2>待确认结果</h2>
+          <span id="fuzzyCount">暂无识别结果</span>
+        </div>
+        <div id="fuzzyResults" class="list"></div>
+        <div class="public-actions">
+          <button type="button" class="primary" id="importFuzzy" data-write>确认导入企业需求</button>
+        </div>
+      </section>
+    </section>
+
+    <section class="view" id="calendar">
+      <div class="toolbar">
+        <label>
+          年份
+          <select id="yearSelect"></select>
+        </label>
+        <label>
+          企业
+          <select id="companyFilter"></select>
+        </label>
+        <label>
+          用工类型
+          <select id="typeFilter">
+            <option value="all">全部</option>
+            <option value="长期工">长期工</option>
+            <option value="短期工">短期工</option>
+            <option value="日结工">日结工</option>
+            <option value="季节工">季节工</option>
+          </select>
+        </label>
+      </div>
+      <div class="calendar-grid" id="calendarGrid"></div>
+    </section>
+
+    <section class="view" id="demands">
+      <div class="toolbar split">
+        <input id="demandSearch" type="search" placeholder="搜索企业、岗位、地点">
+        <button class="primary" data-open-modal="demandModal" data-write>新增用工需求</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>企业</th>
+              <th>岗位</th>
+              <th>时间</th>
+              <th>人数</th>
+              <th>缺口</th>
+              <th>薪资</th>
+              <th>状态</th>
+              <th>推荐</th>
+            </tr>
+          </thead>
+          <tbody id="demandTable"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="view" id="workers">
+      <div class="toolbar split">
+        <input id="workerSearch" type="search" placeholder="搜索姓名、标签、地区">
+        <button class="primary" data-open-modal="workerModal" data-write>新增求职者</button>
+      </div>
+      <div class="worker-grid" id="workerGrid"></div>
+    </section>
+
+    <section class="view" id="knowledge">
+      <div class="toolbar split">
+        <input id="knowledgeSearch" type="search" placeholder="搜索企业规则、岗位、求职者画像、标签">
+        <div class="top-actions">
+          <button class="ghost" id="newKnowledge" data-write>新增知识</button>
+          <button class="ghost" id="batchEditKnowledge" data-write>批量修改</button>
+          <button class="ghost" id="batchDeleteKnowledge" data-write>批量删除</button>
+          <button class="ghost" id="rebuildKnowledge" data-write>重建知识库索引</button>
+        </div>
+      </div>
+      <div class="metrics" id="knowledgeMetrics"></div>
+      <div class="layout two-col">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>知识条目</h2>
+            <span>由企业需求、求职者登记、业务维护自动沉淀</span>
+          </div>
+          <div id="knowledgeList" class="list"></div>
+        </section>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>半智能洞察</h2>
+            <span>不用大模型，基于规则自动生成</span>
+          </div>
+          <div id="insightList" class="knowledge"></div>
+        </section>
+      </div>
+    </section>
+
+    <section class="view" id="account">
+      <div class="layout two-col">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>企业/业务账号注册</h2>
+            <span>企业账号拥有专属知识库</span>
+          </div>
+          <form class="public-form" id="registerForm">
+            <div class="form-grid">
+              <label>账号<input name="name" required placeholder="登录账号"></label>
+              <label>密码<input name="password" type="password" required></label>
+              <label>账号角色<select name="role"><option value="owner">老板/管理员</option><option value="sales">业务员</option><option value="dispatcher">调度员</option><option value="service">客服人员</option></select></label>
+              <label>企业名称<input name="company" required placeholder="同一企业名称共享私有知识库"></label>
+              <label>联系电话<input name="phone"></label>
+            </div>
+            <button class="primary" type="submit">注册并登录</button>
+          </form>
+        </section>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>登录</h2>
+            <span id="accountStatus">当前未登录</span>
+          </div>
+          <form class="public-form" id="loginForm">
+            <label>账号<input name="name" required></label>
+            <label>密码<input name="password" type="password" required></label>
+            <div class="public-actions">
+              <button class="ghost" type="button" id="logoutAccount">退出登录</button>
+              <button class="primary" type="submit">登录</button>
+            </div>
+            <div class="success-box" id="accountMessage"></div>
+          </form>
+        </section>
+      </div>
+    </section>
+
+    <section class="view" id="assistant">
+      <div class="assistant-layout">
+        <section class="panel chat-panel">
+          <div class="panel-head">
+            <h2>AI 本地知识库助手</h2>
+            <span>原型版：基于本地业务数据回答</span>
+          </div>
+          <div class="quick-prompts">
+            <button data-question="下个月有哪些企业缺短期工？">下个月短期工</button>
+            <button data-question="哪些岗位适合暑假工？">暑假工岗位</button>
+            <button data-question="哪些求职者适合夜班岗位？">夜班人选</button>
+            <button data-question="帮我生成一段招聘文案">招聘文案</button>
+          </div>
+          <div class="chat-log" id="chatLog"></div>
+          <form class="chat-form" id="chatForm">
+            <input id="chatInput" autocomplete="off" placeholder="例如：张三适合推荐到哪个企业？">
+            <button class="primary" type="submit">询问</button>
+          </form>
+        </section>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>知识库摘要</h2>
+            <span>自动从业务数据生成</span>
+          </div>
+          <div id="knowledgeSummary" class="knowledge"></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="demandModal">
+    <form method="dialog" class="modal-card" id="demandForm">
+      <header>
+        <h2>新增企业用工需求</h2>
+        <button type="button" data-close-modal="demandModal" class="icon-btn" aria-label="关闭">×</button>
+      </header>
+      <div class="form-grid">
+        <label>企业名称<input name="company" required placeholder="如：华东电子厂"></label>
+        <label>岗位名称<input name="role" required placeholder="如：包装工"></label>
+        <label>用工类型<select name="type"><option>长期工</option><option>短期工</option><option>日结工</option><option>季节工</option></select></label>
+        <label>工作地点<input name="location" required placeholder="如：苏州昆山"></label>
+        <label>开始日期<input name="start" type="date" required></label>
+        <label>结束日期<input name="end" type="date"></label>
+        <label>需求人数<input name="headcount" type="number" min="1" required value="20"></label>
+        <label>已报名<input name="signed" type="number" min="0" value="0"></label>
+        <label>薪资<input name="salary" required placeholder="如：22元/小时"></label>
+        <label>年龄要求<input name="age" placeholder="如：18-45岁"></label>
+      </div>
+      <label>岗位要求与备注<textarea name="notes" placeholder="夜班、住宿、体检、集合地点等"></textarea></label>
+      <footer>
+        <button type="button" data-close-modal="demandModal" class="ghost">取消</button>
+        <button class="primary" value="default">保存需求</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="workerModal">
+    <form method="dialog" class="modal-card" id="workerForm">
+      <header>
+        <h2>新增求职者</h2>
+        <button type="button" data-close-modal="workerModal" class="icon-btn" aria-label="关闭">×</button>
+      </header>
+      <div class="form-grid">
+        <label>姓名<input name="name" required></label>
+        <label>手机号<input name="phone" placeholder="求职者联系电话"></label>
+        <label>性别<select name="gender"><option value="">未填写</option><option>男</option><option>女</option></select></label>
+        <label>年龄<input name="age" type="number" min="16" max="65"></label>
+        <label>所在地区<input name="location" required></label>
+        <label>可到岗时间<input name="available" required placeholder="如：现在可到岗"></label>
+        <label>期望岗位<input name="expectedRole" placeholder="如：普工、质检、注塑"></label>
+        <label>期望周期<select name="period"><option>长期稳定</option><option>1-3个月</option><option>7-15天</option><option>暑假工</option><option>周末兼职</option></select></label>
+        <label>期望薪资<input name="salary" placeholder="如：6000以上"></label>
+        <label>稳定性评分<input name="score" type="number" min="0" max="100" value="80"></label>
+      </div>
+      <label>技能/偏好标签<textarea name="tags" placeholder="用逗号分隔，如：电子厂经验, 接受夜班, 需要住宿"></textarea></label>
+      <label>备注<textarea name="note" placeholder="例如：不接受夜班、需要住宿、可周结等"></textarea></label>
+      <footer>
+        <button type="button" data-close-modal="workerModal" class="ghost">取消</button>
+        <button class="primary" value="default">保存求职者</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="knowledgeModal">
+    <form method="dialog" class="modal-card" id="knowledgeForm">
+      <header>
+        <h2>维护知识条目</h2>
+        <button type="button" data-close-modal="knowledgeModal" class="icon-btn" aria-label="关闭">×</button>
+      </header>
+      <input type="hidden" name="id">
+      <div class="form-grid">
+        <label>分类<input name="category" required placeholder="如：企业岗位规则"></label>
+        <label>来源<input name="source" placeholder="如：人工维护"></label>
+        <label>可信度<input name="confidence" type="number" min="1" max="100" value="80"></label>
+        <label>标签<input name="tags" placeholder="逗号分隔"></label>
+      </div>
+      <label>标题<input name="title" required></label>
+      <label>内容摘要<textarea name="summary" required></textarea></label>
+      <footer>
+        <button type="button" data-close-modal="knowledgeModal" class="ghost">取消</button>
+        <button class="primary" value="default">保存知识</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="knowledgeBatchModal">
+    <form method="dialog" class="modal-card" id="knowledgeBatchForm">
+      <header>
+        <h2>批量修改知识条目</h2>
+        <button type="button" data-close-modal="knowledgeBatchModal" class="icon-btn" aria-label="关闭">×</button>
+      </header>
+      <div class="form-grid">
+        <label>分类<input name="category" placeholder="留空则不修改"></label>
+        <label>来源<input name="source" placeholder="留空则不修改"></label>
+        <label>可信度<input name="confidence" type="number" min="1" max="100" placeholder="留空则不修改"></label>
+        <label>标签<input name="tags" placeholder="留空则不修改"></label>
+      </div>
+      <footer>
+        <button type="button" data-close-modal="knowledgeBatchModal" class="ghost">取消</button>
+        <button class="primary" value="default">确认批量修改</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
