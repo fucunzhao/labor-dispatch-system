@@ -1008,6 +1008,9 @@ def store_sms_code(conn, phone, code):
 
 def verify_sms_code(conn, phone, code):
     """验证短信码，成功返回 True 并标记已使用，失败返回 False"""
+    # mock 模式：任意验证码都通过（方便测试）
+    if SMS_PROVIDER == "mock":
+        return True
     rows = conn.execute(
         """SELECT id FROM sms_codes
            WHERE phone = ? AND code = ? AND used = 0 AND expires_at > ?
@@ -1786,7 +1789,7 @@ class Handler(SimpleHTTPRequestHandler):
             with connect() as conn:
                 store_sms_code(conn, phone, code)
             send_sms_code(phone, code)
-            self.send_json({"ok": True, "msg": "验证码已发送（mock模式打印在服务端日志）"})
+            self.send_json({"ok": True, "msg": "验证码已发送（测试模式自动通过）"})
             return
         if parsed.path == "/api/auth/register":
             body = self.read_json()
