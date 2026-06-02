@@ -1429,6 +1429,18 @@ class Handler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/data":
             self.send_json(get_payload(account))
             return
+        if parsed.path == "/api/accounts/list":
+            if not account:
+                self.send_json({"ok": False, "error": "请先登录"}, status=401)
+                return
+            with connect() as conn:
+                company_key = account.get("companyKey", "")
+                rows = conn.execute(
+                    "SELECT id, name, role, company, phone FROM accounts WHERE company_key = ? ORDER BY id",
+                    (company_key,)
+                ).fetchall()
+                self.send_json({"ok": True, "accounts": [dict(r) for r in rows]})
+            return
         if parsed.path not in self._STATIC_ALLOWLIST:
             self.send_response(404)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
