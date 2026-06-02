@@ -206,16 +206,22 @@
       <div class="layout two-col">
         <section class="panel">
           <div class="panel-head">
-            <h2>企业/业务账号注册</h2>
-            <span>企业账号拥有专属知识库</span>
+            <h2>注册企业账号</h2>
+            <span>手机号验证注册，企业专属知识库</span>
           </div>
           <form class="public-form" id="registerForm">
             <div class="form-grid">
-              <label>账号<input name="name" required placeholder="登录账号"></label>
-              <label>密码<input name="password" type="password" required></label>
+              <label>手机号<input name="phone" type="tel" required placeholder="11位手机号" pattern="1\d{10}"></label>
+              <label>验证码
+                <span class="input-with-btn">
+                  <input name="code" required placeholder="6位验证码" maxlength="6">
+                  <button type="button" class="ghost sms-btn" id="sendRegCode">获取验证码</button>
+                </span>
+              </label>
+              <label>设置密码<input name="password" type="password" required minlength="6" placeholder="至少6位"></label>
+              <label>企业名称<input name="company" required placeholder="同一企业名称共享数据"></label>
+              <label>联系人姓名<input name="name" placeholder="可留空，默认手机号"></label>
               <label>账号角色<select name="role"><option value="owner">老板/管理员</option><option value="sales">业务员</option><option value="dispatcher">调度员</option><option value="service">客服人员</option></select></label>
-              <label>企业名称<input name="company" required placeholder="同一企业名称共享私有知识库"></label>
-              <label>联系电话<input name="phone"></label>
             </div>
             <button class="primary" type="submit">注册并登录</button>
           </form>
@@ -226,13 +232,41 @@
             <span id="accountStatus">当前未登录</span>
           </div>
           <form class="public-form" id="loginForm">
-            <label>账号<input name="name" required></label>
+            <label>手机号<input name="phone" type="tel" placeholder="手机号" pattern="1\d{10}"></label>
             <label>密码<input name="password" type="password" required></label>
             <div class="public-actions">
               <button class="ghost" type="button" id="logoutAccount">退出登录</button>
+              <button class="ghost" type="button" id="showResetPwd">忘记密码</button>
               <button class="primary" type="submit">登录</button>
             </div>
+            <p class="hint">旧版用户仍可使用 账号+企业名称 登录</p>
             <div class="success-box" id="accountMessage"></div>
+          </form>
+        </section>
+      </div>
+      <div class="layout two-col" id="profilePanel" style="display:none">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>个人资料</h2>
+            <span>修改昵称、手机号</span>
+          </div>
+          <form class="public-form" id="profileForm">
+            <label>联系人姓名<input name="name" placeholder="你的姓名/昵称"></label>
+            <label>手机号<input name="phone" type="tel" placeholder="11位手机号" pattern="1\d{10}"></label>
+            <button class="primary" type="submit">保存资料</button>
+            <div class="success-box" id="profileMessage"></div>
+          </form>
+        </section>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>修改密码</h2>
+            <span>定期更换保障安全</span>
+          </div>
+          <form class="public-form" id="changePwdForm">
+            <label>原密码<input name="oldPassword" type="password" required></label>
+            <label>新密码<input name="newPassword" type="password" required minlength="6"></label>
+            <button class="primary" type="submit">修改密码</button>
+            <div class="success-box" id="changePwdMessage"></div>
           </form>
         </section>
       </div>
@@ -376,6 +410,29 @@
         <button type="button" data-close-modal="knowledgeBatchModal" class="ghost">取消</button>
         <button class="primary" value="default">确认批量修改</button>
       </footer>
+    </form>
+  </dialog>
+
+  <dialog id="resetPwdModal">
+    <form method="dialog" class="modal-card" id="resetPwdForm">
+      <header>
+        <h2>找回密码</h2>
+        <button type="button" data-close-modal="resetPwdModal" class="icon-btn" aria-label="关闭">×</button>
+      </header>
+      <p class="hint">通过手机号验证码重置密码</p>
+      <label>手机号<input name="phone" type="tel" required placeholder="11位手机号" pattern="1\d{10}"></label>
+      <label>验证码
+        <span class="input-with-btn">
+          <input name="code" required placeholder="6位验证码" maxlength="6">
+          <button type="button" class="ghost sms-btn" id="sendResetCode">获取验证码</button>
+        </span>
+      </label>
+      <label>新密码<input name="newPassword" type="password" required minlength="6" placeholder="至少6位"></label>
+      <footer>
+        <button type="button" data-close-modal="resetPwdModal" class="ghost">取消</button>
+        <button class="primary" value="default">确认重置</button>
+      </footer>
+      <div class="success-box" id="resetPwdMessage"></div>
     </form>
   </dialog>
 

@@ -15,6 +15,16 @@ const els = {
   accountBadge: document.querySelector("#accountBadge"),
   accountStatus: document.querySelector("#accountStatus"),
   accountMessage: document.querySelector("#accountMessage"),
+  profilePanel: document.querySelector("#profilePanel"),
+  profileForm: document.querySelector("#profileForm"),
+  profileMessage: document.querySelector("#profileMessage"),
+  changePwdForm: document.querySelector("#changePwdForm"),
+  changePwdMessage: document.querySelector("#changePwdMessage"),
+  resetPwdForm: document.querySelector("#resetPwdForm"),
+  resetPwdMessage: document.querySelector("#resetPwdMessage"),
+  sendRegCode: document.querySelector("#sendRegCode"),
+  sendResetCode: document.querySelector("#sendResetCode"),
+  showResetPwd: document.querySelector("#showResetPwd"),
   sideSummary: document.querySelector("#sideSummary"),
   metrics: document.querySelector("#metrics"),
   fuzzyText: document.querySelector("#fuzzyText"),
@@ -124,6 +134,16 @@ function renderAccount() {
   const label = account ? `${account.company || account.name}｜${roleNames[account.role] || account.role}` : "未登录";
   els.accountBadge.textContent = label;
   els.accountStatus.textContent = account ? `当前登录：${label}` : "当前未登录";
+  // 显示/隐藏个人资料和修改密码面板
+  if (els.profilePanel) {
+    els.profilePanel.style.display = account ? "" : "none";
+  }
+  if (account && els.profileForm) {
+    const nameInput = els.profileForm.querySelector("[name=name]");
+    const phoneInput = els.profileForm.querySelector("[name=phone]");
+    if (nameInput) nameInput.value = account.name || "";
+    if (phoneInput) phoneInput.value = account.phone || "";
+  }
   document.querySelectorAll("[data-write]").forEach(item => {
     item.disabled = !account;
     item.title = account ? "" : "请先登录账号";
@@ -752,6 +772,45 @@ document.querySelectorAll("[data-fuzzy-kind]").forEach(button => {
   });
 });
 
+// ── 短信验证码通用函数 ──────────────────────────
+let smsCountdown = null;
+function startSmsCountdown(btn, seconds = 60) {
+  btn.disabled = true;
+  let remaining = seconds;
+  const orig = btn.textContent;
+  btn.textContent = `${remaining}s`;
+  if (smsCountdown) clearInterval(smsCountdown);
+  smsCountdown = setInterval(() => {
+    remaining--;
+    if (remaining <= 0) {
+      clearInterval(smsCountdown);
+      btn.disabled = false;
+      btn.textContent = orig;
+    } else {
+      btn.textContent = `${remaining}s`;
+    }
+  }, 1000);
+}
+async function handleSendCode(phoneInput, btn) {
+  const phone = phoneInput.value.trim();
+  if (!/^1\d{10}$/.test(phone)) {
+    showAccountMessage("请输入正确的11位手机号", true);
+    phoneInput.focus();
+    return;
+  }
+  try {
+    btn.disabled = true;
+    await api("/api/auth/send-code", {
+      method: "POST",
+      body: JSON.stringify({ phone })
+    });
+    showAccountMessage(`验证码已发送至 ${phone}`);
+    startSmsCountdown(btn);
+  } catch (error) {
+    btn.disabled = false;
+    showAccountMessage(error.message, true);
+  }
+}
 function showAccountMessage(message, isError = false) {
   els.accountMessage.textContent = message;
   els.accountMessage.style.background = isError ? "#ffe9e9" : "#e5f5ec";
@@ -759,6 +818,7 @@ function showAccountMessage(message, isError = false) {
   els.accountMessage.classList.add("show");
 }
 
+// ── 注册 ────────────────────────────────────────
 document.querySelector("#registerForm").addEventListener("submit", async event => {
   event.preventDefault();
   try {
@@ -772,12 +832,19 @@ document.querySelector("#registerForm").addEventListener("submit", async event =
     data = payload.data;
     renderAccount();
     renderAll();
-    showAccountMessage("注册并登录成功。");
+    showAccountMessage("注册成功，已自动登录。");
   } catch (error) {
     showAccountMessage(error.message, true);
   }
 });
 
+// ── 发送注册验证码 ──────────────────────────────
+els.sendRegCode.addEventListener("click", () => {
+  const phoneInput = document.querySelector("#registerForm [name=phone]");
+  handleSendCode(phoneInput, els.sendRegCode);
+});
+
+// ── 登录 ────────────────────────────────────────
 document.querySelector("#loginForm").addEventListener("submit", async event => {
   event.preventDefault();
   try {
@@ -797,14 +864,93 @@ document.querySelector("#loginForm").addEventListener("submit", async event => {
   }
 });
 
+// ── 退出 ────────────────────────────────────────
 document.querySelector("#logoutAccount").addEventListener("click", async () => {
   account = null;
   localStorage.removeItem("labor-account");
-  // 退出后让所有视图回到 demo 状态
   data = { demands: [], workers: [], chat: [] };
   renderAccount();
   showAccountMessage("已退出登录。");
   await loadData();
+});
+
+// ── 忘记密码（打开弹窗） ────────────────────────
+els.showResetPwd.addEventListener("click", () => {
+  document.querySelector("#resetPwdModal").showModal();
+});
+
+// ── 发送重置验证码 ──────────────────────────────
+els.sendResetCode.addEventListener("click", () => {
+  const phoneInput = document.querySelector("#resetPwdForm [name=phone]");
+  handleSendCode(phoneInput, els.sendResetCode);
+});
+
+// ── 重置密码 ────────────────────────────────────
+els.resetPwdForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  try {
+    const formData = new FormData(event.currentTarget);
+    const payload = await api("/api/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify(Object.fromEntries(formData.entries()))
+    });
+    els.resetPwdMessage.textContent = payload.msg;
+    els.resetPwdMessage.style.background = "#e5f5ec";
+    els.resetPwdMessage.style.color = "#0d5b38";
+    els.resetPwdMessage.classList.add("show");
+    setTimeout(() => document.querySelector("#resetPwdModal").close(), 2000);
+  } catch (error) {
+    els.resetPwdMessage.textContent = error.message;
+    els.resetPwdMessage.style.background = "#ffe9e9";
+    els.resetPwdMessage.style.color = "#8a2424";
+    els.resetPwdMessage.classList.add("show");
+  }
+});
+
+// ── 修改密码 ────────────────────────────────────
+els.changePwdForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  try {
+    const formData = new FormData(event.currentTarget);
+    const payload = await api("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify(Object.fromEntries(formData.entries()))
+    });
+    els.changePwdMessage.textContent = payload.msg;
+    els.changePwdMessage.style.background = "#e5f5ec";
+    els.changePwdMessage.style.color = "#0d5b38";
+    els.changePwdMessage.classList.add("show");
+    event.currentTarget.reset();
+  } catch (error) {
+    els.changePwdMessage.textContent = error.message;
+    els.changePwdMessage.style.background = "#ffe9e9";
+    els.changePwdMessage.style.color = "#8a2424";
+    els.changePwdMessage.classList.add("show");
+  }
+});
+
+// ── 更新个人资料 ────────────────────────────────
+els.profileForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  try {
+    const formData = new FormData(event.currentTarget);
+    const payload = await api("/api/profile/update", {
+      method: "POST",
+      body: JSON.stringify(Object.fromEntries(formData.entries()))
+    });
+    account = payload.account;
+    localStorage.setItem("labor-account", JSON.stringify(account));
+    renderAccount();
+    els.profileMessage.textContent = "资料更新成功";
+    els.profileMessage.style.background = "#e5f5ec";
+    els.profileMessage.style.color = "#0d5b38";
+    els.profileMessage.classList.add("show");
+  } catch (error) {
+    els.profileMessage.textContent = error.message;
+    els.profileMessage.style.background = "#ffe9e9";
+    els.profileMessage.style.color = "#8a2424";
+    els.profileMessage.classList.add("show");
+  }
 });
 
 els.chatForm.addEventListener("submit", async event => {

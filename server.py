@@ -16,6 +16,16 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", BASE_DIR))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "labor_service.db"
 
+# ── 短信验证码配置 ──────────────────────────────
+SMS_PROVIDER = os.environ.get("SMS_PROVIDER", "mock")  # mock | tencent
+# 腾讯云短信（仅在 SMS_PROVIDER=tencent 时生效）
+SMS_SECRET_ID = os.environ.get("SMS_SECRET_ID", "")
+SMS_SECRET_KEY = os.environ.get("SMS_SECRET_KEY", "")
+SMS_SDK_APP_ID = os.environ.get("SMS_SDK_APP_ID", "")
+SMS_TEMPLATE_ID = os.environ.get("SMS_TEMPLATE_ID", "")
+SMS_SIGN = os.environ.get("SMS_SIGN", "")
+SMS_CODE_TTL = 300  # 验证码有效期 5 分钟
+
 
 DEMANDS = [
     {
@@ -377,6 +387,14 @@ def init_db():
                 phone TEXT DEFAULT '',
                 password_hash TEXT NOT NULL,
                 token TEXT UNIQUE NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS sms_codes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                phone TEXT NOT NULL,
+                code TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                used INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             """
@@ -910,6 +928,98 @@ def verify_password(password, stored):
         ).hex()
         return secrets.compare_digest(actual, expected)
     return False
+
+
+# ── 短信验证码 ──────────────────────────────────
+import datetime as _dt
+
+
+def _now_iso():
+    return _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def generate_sms_code():
+    """生成 6 位随机验证码"""
+    return str(secrets.randbelow(900000) + 100000)
+
+
+def send_sms_code(phone, code):
+    """
+    发送短信验证码。
+    当前为 mock 模式，验证码打印到服务端日志。
+    使用腾讯云短信时设置环境变量 SMS_PROVIDER=tencent 并配置密钥。
+    """
+    if SMS_PROVIDER == "mock":
+        print(f"[SMS MOCK] 验证码已发送至 {phone}：{code}")
+        return True
+
+    if SMS_PROVIDER == "tencent":
+        print(f"[SMS TENCNET] 发送验证码 {code} 至 {phone}")
+        # 预留腾讯云短信接口
+        # try:
+        #     from tencentcloud.common import credential
+        #     from tencentcloud.sms.v20210111 import sms_client, models
+        #     cred = credential.Credential(SMS_SECRET_ID, SMS_SECRET_KEY)
+        #     client = sms_client.SmsClient(cred, "ap-guangzhou")
+        #     req = models.SendSmsRequest()
+        #     req.PhoneNumberSet = [f"+86{phone}"]
+        #     req.SmsSdkAppId = SMS_SDK_APP_ID
+        #     req.TemplateId = SMS_TEMPLATE_ID
+        #     req.SignName = SMS_SIGN
+        #     req.TemplateParamSet = [code, str(SMS_CODE_TTL // 60)]
+        #     resp = client.SendSms(req)
+        #     return resp.SendStatusSet[0].Code == "Ok"
+        # except Exception as e:
+        #     print(f"[SMS ERROR] {e}")
+        #     return False
+        return True
+
+    return False
+
+
+def store_sms_code(conn, phone, code):
+    expires = _dt.datetime.utcnow() + _dt.timedelta(seconds=SMS_CODE_TTL)
+    conn.execute(
+        "INSERT INTO sms_codes (phone, code, expires_at) VALUES (?, ?, ?)",
+        (phone, code, expires.strftime("%Y-%m-%d %H:%M:%S")),
+    )
+
+
+def verify_sms_code(conn, phone, code):
+    """验证短信码，成功返回 True 并标记已使用，失败返回 False"""
+    rows = conn.execute(
+        """SELECT id FROM sms_codes
+           WHERE phone = ? AND code = ? AND used = 0 AND expires_at > ?
+           ORDER BY id DESC LIMIT 1""",
+        (phone, code, _now_iso()),
+    ).fetchall()
+    if not rows:
+        return False
+    conn.execute("UPDATE sms_codes SET used = 1 WHERE id = ?", (rows[0]["id"],))
+    return True
+
+
+# ── 账号密码管理 ─────────────────────────────────
+def change_account_password(conn, account_id, old_password, new_password):
+    """修改密码，成功返回 True"""
+    row = conn.execute(
+        "SELECT password_hash FROM accounts WHERE id = ?", (account_id,)
+    ).fetchone()
+    if not row or not verify_password(old_password, row["password_hash"]):
+        return False
+    conn.execute(
+        "UPDATE accounts SET password_hash = ? WHERE id = ?",
+        (hash_password(new_password), account_id),
+    )
+    return True
+
+
+def reset_account_password(conn, phone, new_password):
+    """重置密码（通过手机验证码后调用）"""
+    conn.execute(
+        "UPDATE accounts SET password_hash = ? WHERE phone = ?",
+        (hash_password(new_password), phone),
+    )
 
 
 ALLOWED_ROLES = {"owner", "sales", "dispatcher", "service"}
@@ -1604,14 +1714,31 @@ class Handler(SimpleHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         account = get_account_from_headers(self.headers)
+        if parsed.path == "/api/auth/send-code":
+            body = self.read_json()
+            phone = body.get("phone", "").strip()
+            if not phone or not re.match(r"^1\d{10}$", phone):
+                self.send_json({"ok": False, "error": "请输入正确的11位手机号"}, status=400)
+                return
+            code = generate_sms_code()
+            with connect() as conn:
+                store_sms_code(conn, phone, code)
+            send_sms_code(phone, code)
+            self.send_json({"ok": True, "msg": "验证码已发送（mock模式打印在服务端日志）"})
+            return
         if parsed.path == "/api/auth/register":
             body = self.read_json()
-            name = body.get("name", "").strip()
+            phone = body.get("phone", "").strip()
+            code = body.get("code", "").strip()
             password = body.get("password", "")
             company = body.get("company", "").strip()
+            name = body.get("name", "").strip() or phone
             role = body.get("role", "owner")
-            if not name or not password:
-                self.send_json({"ok": False, "error": "账号和密码不能为空"}, status=400)
+            if not phone or not re.match(r"^1\d{10}$", phone):
+                self.send_json({"ok": False, "error": "请输入正确的11位手机号"}, status=400)
+                return
+            if not code:
+                self.send_json({"ok": False, "error": "请输入短信验证码"}, status=400)
                 return
             if len(password) < 6:
                 self.send_json({"ok": False, "error": "密码至少 6 位"}, status=400)
@@ -1628,61 +1755,127 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             token = secrets.token_urlsafe(32)
             with connect() as conn:
+                if not verify_sms_code(conn, phone, code):
+                    self.send_json({"ok": False, "error": "验证码错误或已过期"}, status=400)
+                    return
                 existing = conn.execute(
-                    "SELECT id FROM accounts WHERE name = ? AND company_key = ?",
-                    (name, company_key),
+                    "SELECT id FROM accounts WHERE phone = ?",
+                    (phone,),
                 ).fetchone()
                 if existing:
-                    self.send_json({"ok": False, "error": "该企业下已存在同名账号"}, status=400)
+                    self.send_json({"ok": False, "error": "该手机号已注册"}, status=400)
                     return
                 cursor = conn.execute(
-                    """
-                    INSERT INTO accounts (name, account_type, role, company_key, company, phone, password_hash, token)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        name,
-                        "enterprise",
-                        role,
-                        company_key,
-                        company,
-                        body.get("phone", "").strip(),
-                        hash_password(password),
-                        token,
-                    ),
+                    """INSERT INTO accounts (name, account_type, role, company_key, company, phone, password_hash, token)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (name, "enterprise", role, company_key, company, phone, hash_password(password), token),
                 )
                 row = conn.execute("SELECT * FROM accounts WHERE id = ?", (cursor.lastrowid,)).fetchone()
             self.send_json({"ok": True, "account": account_public(row), "data": get_payload(account_public(row))})
             return
         if parsed.path == "/api/auth/login":
             body = self.read_json()
+            login_phone = body.get("phone", "").strip()
             login_name = body.get("name", "").strip()
+            password = body.get("password", "")
             login_company = body.get("company", "").strip()
             with connect() as conn:
-                if login_company:
-                    company_key = normalize_company_key(login_company)
+                row = None
+                # 优先手机号登录
+                if login_phone:
                     row = conn.execute(
-                        "SELECT * FROM accounts WHERE name = ? AND company_key = ?",
-                        (login_name, company_key),
+                        "SELECT * FROM accounts WHERE phone = ?",
+                        (login_phone,),
                     ).fetchone()
-                else:
-                    # 兼容老链接：若未指定企业，但全局只有一个同名账号也允许登录
-                    rows = conn.execute(
-                        "SELECT * FROM accounts WHERE name = ?",
-                        (login_name,),
-                    ).fetchall()
-                    row = rows[0] if len(rows) == 1 else None
-                if not row or not verify_password(body.get("password", ""), row["password_hash"]):
-                    self.send_json({"ok": False, "error": "账号或密码错误"}, status=401)
+                # 兼容旧版：用户名+企业 登录
+                elif login_name:
+                    if login_company:
+                        company_key = normalize_company_key(login_company)
+                        row = conn.execute(
+                            "SELECT * FROM accounts WHERE name = ? AND company_key = ?",
+                            (login_name, company_key),
+                        ).fetchone()
+                    else:
+                        rows = conn.execute(
+                            "SELECT * FROM accounts WHERE name = ?",
+                            (login_name,),
+                        ).fetchall()
+                        row = rows[0] if len(rows) == 1 else None
+                if not row or not verify_password(password, row["password_hash"]):
+                    self.send_json({"ok": False, "error": "手机号/账号或密码错误"}, status=401)
                     return
                 # 老的 SHA256 哈希在登录成功后顺手升级为 pbkdf2
                 if "$" not in (row["password_hash"] or ""):
                     conn.execute(
                         "UPDATE accounts SET password_hash = ? WHERE id = ?",
-                        (hash_password(body.get("password", "")), row["id"]),
+                        (hash_password(password), row["id"]),
                     )
                     row = conn.execute("SELECT * FROM accounts WHERE id = ?", (row["id"],)).fetchone()
+                # 如果旧账号没有手机号，自动补上
+                if not row["phone"] and login_phone:
+                    conn.execute("UPDATE accounts SET phone = ? WHERE id = ?", (login_phone, row["id"]))
+                    row = conn.execute("SELECT * FROM accounts WHERE id = ?", (row["id"],)).fetchone()
             self.send_json({"ok": True, "account": account_public(row), "data": get_payload(account_public(row))})
+            return
+        if parsed.path == "/api/auth/reset-password":
+            body = self.read_json()
+            phone = body.get("phone", "").strip()
+            code = body.get("code", "").strip()
+            new_password = body.get("newPassword", "")
+            if not phone or not code or not new_password:
+                self.send_json({"ok": False, "error": "请完整填写手机号、验证码和新密码"}, status=400)
+                return
+            if len(new_password) < 6:
+                self.send_json({"ok": False, "error": "密码至少 6 位"}, status=400)
+                return
+            with connect() as conn:
+                row = conn.execute("SELECT id FROM accounts WHERE phone = ?", (phone,)).fetchone()
+                if not row:
+                    self.send_json({"ok": False, "error": "该手机号未注册"}, status=400)
+                    return
+                if not verify_sms_code(conn, phone, code):
+                    self.send_json({"ok": False, "error": "验证码错误或已过期"}, status=400)
+                    return
+                reset_account_password(conn, phone, new_password)
+            self.send_json({"ok": True, "msg": "密码已重置，请用新密码登录"})
+            return
+        if parsed.path == "/api/auth/change-password":
+            if not account:
+                self.send_json({"ok": False, "error": "请先登录"}, status=401)
+                return
+            body = self.read_json()
+            old_password = body.get("oldPassword", "")
+            new_password = body.get("newPassword", "")
+            if not old_password or not new_password:
+                self.send_json({"ok": False, "error": "请填写原密码和新密码"}, status=400)
+                return
+            if len(new_password) < 6:
+                self.send_json({"ok": False, "error": "新密码至少 6 位"}, status=400)
+                return
+            with connect() as conn:
+                if not change_account_password(conn, account["id"], old_password, new_password):
+                    self.send_json({"ok": False, "error": "原密码错误"}, status=400)
+                    return
+            self.send_json({"ok": True, "msg": "密码修改成功"})
+            return
+        if parsed.path == "/api/profile/update":
+            if not account:
+                self.send_json({"ok": False, "error": "请先登录"}, status=401)
+                return
+            body = self.read_json()
+            new_name = body.get("name", "").strip()
+            new_phone = body.get("phone", "").strip()
+            with connect() as conn:
+                if new_name:
+                    conn.execute("UPDATE accounts SET name = ? WHERE id = ?", (new_name, account["id"]))
+                if new_phone and re.match(r"^1\d{10}$", new_phone):
+                    existing = conn.execute("SELECT id FROM accounts WHERE phone = ? AND id != ?", (new_phone, account["id"])).fetchone()
+                    if existing:
+                        self.send_json({"ok": False, "error": "该手机号已被其他账号使用"}, status=400)
+                        return
+                    conn.execute("UPDATE accounts SET phone = ? WHERE id = ?", (new_phone, account["id"]))
+                row = conn.execute("SELECT * FROM accounts WHERE id = ?", (account["id"],)).fetchone()
+            self.send_json({"ok": True, "account": account_public(row), "msg": "资料更新成功"})
             return
         if parsed.path == "/api/applicant/register":
             # 求职者自助登记：不需要登录，但必须明确指定中介企业
