@@ -738,3 +738,17 @@ dialog::backdrop {
   color: var(--text-muted);
   margin: 4px 0;
 }
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.checkbox-label input[type="checkbox"] {
+  width: auto;
+}
+.checkbox-label a {
+  color: var(--primary);
+  text-decoration: underline;
+}

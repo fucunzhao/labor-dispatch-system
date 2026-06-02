@@ -397,6 +397,27 @@ def init_db():
                 used INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS recruitment_pipeline (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                demand_id INTEGER NOT NULL,
+                worker_id INTEGER NOT NULL,
+                company_key TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'assigned',
+                assigned_by INTEGER DEFAULT 0,
+                contacted_at TEXT DEFAULT '',
+                interviewed_at TEXT DEFAULT '',
+                onboarded_at TEXT DEFAULT '',
+                stationed_at TEXT DEFAULT '',
+                departed_at TEXT DEFAULT '',
+                notes TEXT DEFAULT '',
+                interview_invite_sent INTEGER DEFAULT 0,
+                worker_accepted INTEGER DEFAULT 0,
+                phone_revealed INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_pipeline_company ON recruitment_pipeline(company_key);
+            CREATE INDEX IF NOT EXISTS idx_pipeline_demand ON recruitment_pipeline(demand_id);
             """
         )
         ensure_table_columns(conn, "demands", {"account_id": "INTEGER DEFAULT 0"})
@@ -1581,6 +1602,10 @@ def get_payload(account=None):
                 worker_params,
             )
         ]
+        # 手机号脱敏
+        for w in workers:
+            if w.get("phone"):
+                w["phone"] = mask_phone(w["phone"])
         chat = [
             dict(row)
             for row in conn.execute(
@@ -1700,6 +1725,43 @@ class Handler(SimpleHTTPRequestHandler):
                     (company_key,)
                 ).fetchall()
                 self.send_json({"ok": True, "accounts": [dict(r) for r in rows]})
+            return
+        if parsed.path == "/api/pipeline":
+            if not account:
+                self.send_json({"ok": False, "error": "请先登录"}, status=401)
+                return
+            demand_id = urlparse(self.path).query.split("=")[-1] if "demand_id=" in self.path else ""
+            with connect() as conn:
+                if demand_id and demand_id.isdigit():
+                    rows = conn.execute(
+                        """SELECT p.*, w.name as worker_name, w.phone as worker_phone,
+                                  d.company as demand_company, d.role as demand_role
+                           FROM recruitment_pipeline p
+                           LEFT JOIN workers w ON p.worker_id = w.id
+                           LEFT JOIN demands d ON p.demand_id = d.id
+                           WHERE p.demand_id = ? AND p.company_key = ?
+                           ORDER BY p.created_at DESC""",
+                        (int(demand_id), account.get("companyKey", "")),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """SELECT p.*, w.name as worker_name, w.phone as worker_phone,
+                                  d.company as demand_company, d.role as demand_role
+                           FROM recruitment_pipeline p
+                           LEFT JOIN workers w ON p.worker_id = w.id
+                           LEFT JOIN demands d ON p.demand_id = d.id
+                           WHERE p.company_key = ?
+                           ORDER BY p.created_at DESC LIMIT 100""",
+                        (account.get("companyKey", ""),),
+                    ).fetchall()
+                pipeline = []
+                for r in rows:
+                    item = dict(r)
+                    # 电话仅当已 reveal 才显示真实值
+                    if not item.get("phone_revealed"):
+                        item["worker_phone"] = mask_phone(item.get("worker_phone", ""))
+                    pipeline.append(item)
+                self.send_json({"ok": True, "pipeline": pipeline})
             return
         if parsed.path not in self._STATIC_ALLOWLIST:
             self.send_response(404)
@@ -1877,6 +1939,111 @@ class Handler(SimpleHTTPRequestHandler):
                 row = conn.execute("SELECT * FROM accounts WHERE id = ?", (account["id"],)).fetchone()
             self.send_json({"ok": True, "account": account_public(row), "msg": "资料更新成功"})
             return
+        if parsed.path == "/api/pipeline/assign":
+            if not can_write(account):
+                self.send_json({"ok": False, "error": "无权限"}, status=403)
+                return
+            body = self.read_json()
+            demand_id = int(body.get("demand_id") or 0)
+            worker_id = int(body.get("worker_id") or 0)
+            if not demand_id or not worker_id:
+                self.send_json({"ok": False, "error": "缺少需求ID或求职者ID"}, status=400)
+                return
+            with connect() as conn:
+                conn.execute(
+                    """INSERT OR IGNORE INTO recruitment_pipeline
+                       (demand_id, worker_id, company_key, status, assigned_by, created_at, updated_at)
+                       VALUES (?, ?, ?, 'assigned', ?, datetime('now'), datetime('now'))""",
+                    (demand_id, worker_id, account["companyKey"], account["id"]),
+                )
+                conn.execute("UPDATE demands SET signed = signed + 1 WHERE id = ? AND company_key = ?",
+                             (demand_id, account["companyKey"]))
+            self.send_json({"ok": True})
+            return
+        if parsed.path == "/api/pipeline/status":
+            if not can_write(account):
+                self.send_json({"ok": False, "error": "无权限"}, status=403)
+                return
+            body = self.read_json()
+            pipeline_id = int(body.get("pipeline_id") or 0)
+            new_status = body.get("status", "")
+            valid_statuses = {"assigned", "contacted", "interviewed", "onboarded", "stationed", "departed"}
+            if not pipeline_id or new_status not in valid_statuses:
+                self.send_json({"ok": False, "error": "参数无效"}, status=400)
+                return
+            col_map = {
+                "contacted": "contacted_at", "interviewed": "interviewed_at",
+                "onboarded": "onboarded_at", "stationed": "stationed_at", "departed": "departed_at",
+            }
+            with connect() as conn:
+                # 检查归属
+                row = conn.execute(
+                    "SELECT id FROM recruitment_pipeline WHERE id = ? AND company_key = ?",
+                    (pipeline_id, account["companyKey"]),
+                ).fetchone()
+                if not row:
+                    self.send_json({"ok": False, "error": "记录不存在或无权限"}, status=404)
+                    return
+                col = col_map.get(new_status)
+                if col:
+                    conn.execute(
+                        f"UPDATE recruitment_pipeline SET status = ?, {col} = datetime('now'), updated_at = datetime('now') WHERE id = ?",
+                        (new_status, pipeline_id),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE recruitment_pipeline SET status = ?, updated_at = datetime('now') WHERE id = ?",
+                        (new_status, pipeline_id),
+                    )
+            self.send_json({"ok": True})
+            return
+        if parsed.path == "/api/interview/invite":
+            if not can_write(account):
+                self.send_json({"ok": False, "error": "无权限"}, status=403)
+                return
+            body = self.read_json()
+            pipeline_id = int(body.get("pipeline_id") or 0)
+            if not pipeline_id:
+                self.send_json({"ok": False, "error": "缺少流程ID"}, status=400)
+                return
+            with connect() as conn:
+                row = conn.execute(
+                    "SELECT id FROM recruitment_pipeline WHERE id = ? AND company_key = ?",
+                    (pipeline_id, account["companyKey"]),
+                ).fetchone()
+                if not row:
+                    self.send_json({"ok": False, "error": "记录不存在"}, status=404)
+                    return
+                conn.execute(
+                    "UPDATE recruitment_pipeline SET interview_invite_sent = 1, updated_at = datetime('now') WHERE id = ?",
+                    (pipeline_id,),
+                )
+            self.send_json({"ok": True, "msg": "面试邀约已发送，等待求职者确认"})
+            return
+        if parsed.path == "/api/interview/accept":
+            body = self.read_json()
+            pipeline_id = int(body.get("pipeline_id") or 0)
+            worker_id = int(body.get("worker_id") or 0)
+            if not pipeline_id or not worker_id:
+                self.send_json({"ok": False, "error": "参数无效"}, status=400)
+                return
+            with connect() as conn:
+                row = conn.execute(
+                    "SELECT id FROM recruitment_pipeline WHERE id = ? AND worker_id = ?",
+                    (pipeline_id, worker_id),
+                ).fetchone()
+                if not row:
+                    self.send_json({"ok": False, "error": "记录不存在"}, status=404)
+                    return
+                conn.execute(
+                    """UPDATE recruitment_pipeline
+                       SET worker_accepted = 1, phone_revealed = 1, status = 'contacted',
+                           contacted_at = datetime('now'), updated_at = datetime('now')
+                       WHERE id = ?""",
+                    (pipeline_id,),
+                )
+            self.send_json({"ok": True, "msg": "已接受面试邀约，企业可查看您的联系方式"})
+            return
         if parsed.path == "/api/applicant/register":
             # 求职者自助登记：不需要登录，但必须明确指定中介企业
             body = self.read_json()
@@ -1897,6 +2064,9 @@ class Handler(SimpleHTTPRequestHandler):
                 location = (body.get("location") or "").strip()
                 if not name or not phone or not location:
                     self.send_json({"ok": False, "error": "姓名、手机号、当前地区必填"}, status=400)
+                    return
+                if not body.get("privacyAgreed"):
+                    self.send_json({"ok": False, "error": "请阅读并同意《隐私政策》"}, status=400)
                     return
                 body["source"] = "求职者自助登记"
                 _do_insert_worker(conn, body, account_id=int(agent_row["id"]), company_key=target_key)
@@ -2118,36 +2288,66 @@ def remaining(demand):
     return max(int(demand["headcount"]) - int(demand.get("signed") or 0), 0)
 
 
+def mask_phone(phone):
+    """手机号脱敏：138****5678"""
+    if not phone or len(phone) < 11:
+        return phone
+    return phone[:3] + "****" + phone[-4:]
+
+
 def rank_workers(demand, workers):
     ranked = []
     demand_text = f"{demand['company']} {demand['role']} {demand['type']} {demand['location']} {demand['notes']}".lower()
     for worker in workers:
-        score = round(int(worker.get("score") or 70) * 0.45)
+        score = round(int(worker.get("score") or 70) * 0.30)
         reasons = []
         worker_text = f"{worker['location']} {worker['available']} {worker['period']} {' '.join(worker['tags'])}".lower()
         if worker["location"].lower() in demand_text or demand["location"][:2].lower() in worker_text:
-            score += 14
+            score += 12
             reasons.append("地区接近")
         if any(tag[:2].lower() in demand_text for tag in worker["tags"] if len(tag) >= 2):
-            score += 16
+            score += 12
             reasons.append("岗位经验匹配")
         if "短期" in demand["type"] and ("暑假" in worker["period"] or "7-15" in worker["period"] or "短期工" in worker["tags"]):
-            score += 14
+            score += 10
             reasons.append("可做短期")
         if "长期" in demand["type"] and "长期" in worker["period"]:
-            score += 14
+            score += 10
             reasons.append("适合长期稳定")
         if "夜班" in demand["notes"] and any("夜班" in tag for tag in worker["tags"]):
-            score += 12
+            score += 10
             reasons.append("接受夜班")
         if "住宿" in demand["notes"] and any("住宿" in tag for tag in worker["tags"]):
-            score += 8
+            score += 6
             reasons.append("住宿需求一致")
         for keyword in ["包装", "分拣", "质检", "注塑", "物流", "抛光", "坐班"]:
             if keyword in demand["role"] + demand["notes"] and any(keyword in tag for tag in worker["tags"]):
-                score += 10
+                score += 8
                 reasons.append(f"{keyword}匹配")
                 break
+        # 薪资匹配度（15分）：解析 worker 期望薪资 vs 岗位薪资
+        worker_salary = worker.get("salary", "")
+        demand_salary = demand.get("salary", "")
+        if worker_salary and demand_salary:
+            w_nums = [int(s) for s in worker_salary.replace("元", "").replace("以上", "").split("-") if s.strip().isdigit()]
+            d_nums = [int(s) for s in demand_salary.replace("元", "").replace("以上", "").replace(",", "").split("-") if s.strip().isdigit()]
+            if w_nums and d_nums:
+                w_avg = sum(w_nums) / len(w_nums)
+                d_min = min(d_nums)
+                d_max = max(d_nums)
+                if d_min <= w_avg <= d_max:
+                    score += 15
+                    reasons.append("薪资期望在岗位范围内")
+                elif w_avg < d_min:
+                    ratio = w_avg / d_min
+                    if ratio >= 0.9:
+                        score += 10
+                        reasons.append("薪资期望接近岗位下限")
+                elif w_avg > d_max:
+                    ratio = d_max / w_avg
+                    if ratio >= 0.9:
+                        score += 8
+                        reasons.append("薪资期望略高于岗位上限")
         ranked.append({"worker": worker, "score": min(score, 100), "reasons": reasons})
     return sorted(ranked, key=lambda item: item["score"], reverse=True)
 
