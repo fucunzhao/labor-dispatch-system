@@ -1223,7 +1223,10 @@ def parse_xlsx_demands(rows):
         return default
 
     results = []
+    MAX_XLSX_ITEMS = 200
     for cells in rows[1:]:
+        if len(results) >= MAX_XLSX_ITEMS:
+            break
         if not any(c.strip() for c in cells if c):
             continue
         headcount_val = _cell(col_map, "headcount", cells, "20")
@@ -1297,7 +1300,10 @@ def parse_xlsx_workers(rows):
         return val
 
     items = []
+    MAX_XLSX_ITEMS = 200
     for cells in rows[1:]:
+        if len(items) >= MAX_XLSX_ITEMS:
+            break
         if not any(c.strip() for c in cells if c):
             continue
         item = {
@@ -1742,7 +1748,10 @@ class Handler(SimpleHTTPRequestHandler):
                     else:
                         items = parse_xlsx_demands(rows)
                     if items is not None:
-                        self.send_json({"ok": True, "items": items, "filename": filename})
+                        total = max(len(rows) - 1, 0)  # 减表头
+                        truncated = total > len(items)
+                        self.send_json({"ok": True, "items": items, "filename": filename,
+                                        "totalRows": total, "truncated": truncated, "returnedCount": len(items)})
                         return
                 # 回退到文本提取 + 正则解析
                 text = extract_uploaded_text(filename, raw)

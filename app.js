@@ -667,12 +667,17 @@ document.querySelector("#parseFuzzy").addEventListener("click", async () => {
     fuzzyItems = payload.items || [];
     renderFuzzyResults();
     const kindLabel = fuzzyKind === "worker" ? "求职者信息" : "企业需求";
-    setFuzzyStatus(
-      fuzzyItems.length
-        ? `识别完成，共 ${fuzzyItems.length} 条，请检查后导入。`
-        : `没有识别到可导入的${kindLabel}。`,
-      !fuzzyItems.length
-    );
+    let statusMsg = fuzzyItems.length
+      ? `识别完成，共 ${fuzzyItems.length} 条`
+      : `没有识别到可导入的${kindLabel}。`;
+    if (payload.truncated) {
+      statusMsg += `（文件共 ${payload.totalRows} 条，仅显示前 ${payload.returnedCount} 条。导入后再上传后续部分即可）`;
+    } else if (payload.totalRows && payload.totalRows > fuzzyItems.length) {
+      statusMsg += `（文件共 ${payload.totalRows} 行，其中 ${fuzzyItems.length} 行有数据）`;
+    } else {
+      statusMsg += `，请检查后导入。`;
+    }
+    setFuzzyStatus(statusMsg, !fuzzyItems.length);
   } catch (error) {
     setFuzzyStatus(`识别失败：${error.message}。如果刚更新过代码，请确认服务器已经 git pull 并重启。`, true);
   } finally {
