@@ -1189,8 +1189,150 @@ def extract_xlsx_text(raw):
                             value = shared_strings[index] if index < len(shared_strings) else value
                     cells.append(value.strip())
                 if any(cells):
-                    rows.append(" | ".join(cells))
-        return "\n".join(rows)
+                    rows.append(cells)
+        return rows
+
+
+def parse_xlsx_demands(rows):
+    """直接按列解析企业用工信息模板 xlsx，返回与 parse_fuzzy_demands 同格式的列表"""
+    if not rows:
+        return []
+    headers = [str(h).strip() for h in rows[0]]
+    # 表头匹配映射：xlsx 表头 -> 内部字段名
+    header_map = {
+        "企业名称": "company", "企业产品": "product", "岗位名称": "role",
+        "需求人数": "headcount", "证件需要与否": "needId", "工作地点": "location",
+        "月薪": "salary", "年龄要求": "age", "性别要求": "genderRequired",
+        "是否需要岗位经验": "needExperience", "是否倒班": "hasShifts",
+        "有无吃": "hasMeal", "有无住": "hasDorm", "其他用工要求": "notes",
+        "用工类型": "type", "开始日期": "start", "结束日期": "end",
+        "已报名": "signed",
+    }
+    col_map = {}
+    for i, h in enumerate(headers):
+        if h in header_map:
+            col_map[header_map[h]] = i
+    # 必须是企业用工模板（至少有企业名称和岗位名称两列）
+    if "company" not in col_map or "role" not in col_map:
+        return None  # 不匹配，让调用方回退到文本解析
+
+    def _cell(col_map, key, cells, default=""):
+        idx = col_map.get(key, -1)
+        if 0 <= idx < len(cells):
+            return cells[idx].strip()
+        return default
+
+    results = []
+    for cells in rows[1:]:
+        if not any(c.strip() for c in cells if c):
+            continue
+        headcount_val = _cell(col_map, "headcount", cells, "20")
+        item = {
+            "company": _cell(col_map, "company", cells, ""),
+            "product": _cell(col_map, "product", cells, ""),
+            "role": _cell(col_map, "role", cells, ""),
+            "type": _cell(col_map, "type", cells, "长期工"),
+            "location": _cell(col_map, "location", cells, ""),
+            "start": _cell(col_map, "start", cells, "2026-05-13"),
+            "end": _cell(col_map, "end", cells, ""),
+            "headcount": int(headcount_val) if headcount_val.isdigit() else 20,
+            "signed": 0,
+            "salary": _cell(col_map, "salary", cells, ""),
+            "age": _cell(col_map, "age", cells, ""),
+            "genderRequired": _cell(col_map, "genderRequired", cells, ""),
+            "needId": _cell(col_map, "needId", cells, ""),
+            "needExperience": _cell(col_map, "needExperience", cells, ""),
+            "hasShifts": _cell(col_map, "hasShifts", cells, ""),
+            "hasMeal": _cell(col_map, "hasMeal", cells, ""),
+            "hasDorm": _cell(col_map, "hasDorm", cells, ""),
+            "notes": _cell(col_map, "notes", cells, ""),
+            "confidence": 90,
+            "sourceText": "",
+        }
+        # 统一字段名（前端需要 camelCase）
+        results.append(item)
+    return results
+
+
+def parse_xlsx_workers(rows):
+    """直接按列解析求职者信息模板 xlsx"""
+    if not rows:
+        return []
+    headers = [str(h).strip() for h in rows[0]]
+    header_map = {
+        "报名日期": "registrationDate", "面试日期": "interviewDate",
+        "希望到岗日期": "desiredStartDate", "上份工作岗位": "previousJob",
+        "姓名": "name", "联系方式": "phone", "性别": "gender", "年龄": "age",
+        "学历": "education", "已到面": "hasInterviewed", "已入职": "hasEmployed",
+        "入职日期": "employDate", "希望月薪": "salary",
+        "希望工作单位": "desiredCompany", "希望工作岗位": "expectedRole",
+        "是否接受倒班": "acceptShifts", "是否接受住宿": "acceptDorm",
+        "是否接受社保": "acceptSocialInsurance",
+        "希望工作区域": "desiredArea", "其他个人希望": "otherWishes",
+        "所在地区": "location", "可到岗时间": "available", "期望周期": "period",
+    }
+    col_map = {}
+    for i, h in enumerate(headers):
+        if h in header_map:
+            col_map[header_map[h]] = i
+    if "name" not in col_map:
+        return None
+
+    def _cell(col_map, key, cells, default=""):
+        idx = col_map.get(key, -1)
+        if 0 <= idx < len(cells):
+            val = cells[idx].strip()
+            return val
+        return default
+
+    def _date(val):
+        """将 Excel 序列号转为 YYYY-MM-DD"""
+        if val and val.replace(".", "", 1).isdigit():
+            import datetime
+            try:
+                d = datetime.datetime(1899, 12, 30) + datetime.timedelta(days=float(val))
+                return d.strftime("%Y-%m-%d")
+            except (ValueError, OverflowError):
+                pass
+        return val
+
+    items = []
+    for cells in rows[1:]:
+        if not any(c.strip() for c in cells if c):
+            continue
+        item = {
+            "name": _cell(col_map, "name", cells, ""),
+            "phone": _cell(col_map, "phone", cells, ""),
+            "gender": _cell(col_map, "gender", cells, ""),
+            "age": _cell(col_map, "age", cells, ""),
+            "education": _cell(col_map, "education", cells, ""),
+            "location": _cell(col_map, "location", cells, ""),
+            "available": _cell(col_map, "available", cells, ""),
+            "period": _cell(col_map, "period", cells, "长期稳定"),
+            "expectedRole": _cell(col_map, "expectedRole", cells, ""),
+            "salary": _cell(col_map, "salary", cells, ""),
+            "registrationDate": _date(_cell(col_map, "registrationDate", cells, "")),
+            "interviewDate": _date(_cell(col_map, "interviewDate", cells, "")),
+            "desiredStartDate": _date(_cell(col_map, "desiredStartDate", cells, "")),
+            "previousJob": _cell(col_map, "previousJob", cells, ""),
+            "hasInterviewed": _cell(col_map, "hasInterviewed", cells, ""),
+            "hasEmployed": _cell(col_map, "hasEmployed", cells, ""),
+            "employDate": _date(_cell(col_map, "employDate", cells, "")),
+            "desiredCompany": _cell(col_map, "desiredCompany", cells, ""),
+            "desiredRole": _cell(col_map, "expectedRole", cells, ""),
+            "acceptShifts": _cell(col_map, "acceptShifts", cells, ""),
+            "acceptDorm": _cell(col_map, "acceptDorm", cells, ""),
+            "acceptSocialInsurance": _cell(col_map, "acceptSocialInsurance", cells, ""),
+            "desiredArea": _cell(col_map, "desiredArea", cells, ""),
+            "otherWishes": _cell(col_map, "otherWishes", cells, ""),
+            "score": 75,
+            "tags": [],
+            "note": "",
+            "source": "模版导入",
+            "confidence": 90,
+        }
+        items.append(item)
+    return items
 
 
 def extract_uploaded_text(filename, raw):
@@ -1200,7 +1342,9 @@ def extract_uploaded_text(filename, raw):
     if suffix == ".docx":
         return extract_docx_text(raw)
     if suffix == ".xlsx":
-        return extract_xlsx_text(raw)
+        rows = extract_xlsx_text(raw)
+        # 转回文本作为正则解析的 fallback
+        return "\n".join(" | ".join(cells) for cells in rows)
     if suffix == ".xls":
         raise ValueError("暂不支持旧版 .xls，请先另存为 .xlsx 后上传。")
     raise ValueError("暂不支持该文件格式，请上传 .xlsx、.docx、.csv、.txt、.md 或 .json。")
@@ -1589,6 +1733,18 @@ class Handler(SimpleHTTPRequestHandler):
                 if not raw:
                     self.send_json({"ok": False, "error": "没有收到文件"}, status=400)
                     return
+                suffix = Path(filename or "").suffix.lower()
+                # 如果是 xlsx，先尝试直接按模板列解析
+                if suffix == ".xlsx":
+                    rows = extract_xlsx_text(raw)
+                    if kind == "worker":
+                        items = parse_xlsx_workers(rows)
+                    else:
+                        items = parse_xlsx_demands(rows)
+                    if items is not None:
+                        self.send_json({"ok": True, "items": items, "filename": filename})
+                        return
+                # 回退到文本提取 + 正则解析
                 text = extract_uploaded_text(filename, raw)
                 if not text.strip():
                     self.send_json({"ok": False, "error": "文件内容为空或无法提取文字"}, status=400)
