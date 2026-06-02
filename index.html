@@ -274,19 +274,25 @@
         <h2>新增企业用工需求</h2>
         <button type="button" data-close-modal="demandModal" class="icon-btn" aria-label="关闭">×</button>
       </header>
-      <div class="form-grid">
+      <div class="form-grid" style="grid-template-columns:1fr 1fr">
         <label>企业名称<input name="company" required placeholder="如：华东电子厂"></label>
+        <label>企业产品<input name="product" placeholder="如：注塑件、汽车配件"></label>
         <label>岗位名称<input name="role" required placeholder="如：包装工"></label>
+        <label>需求人数<input name="headcount" type="number" min="1" required value="20"></label>
+        <label>证件需要与否<input name="needId" placeholder="如：需要身份证"></label>
+        <label>工作地点<input name="location" required placeholder="如：柳东"></label>
+        <label>月薪<input name="salary" required placeholder="如：22元/小时"></label>
+        <label>年龄要求<input name="age" placeholder="如：18-45岁"></label>
+        <label>性别要求<input name="genderRequired" placeholder="男/女/不限"></label>
+        <label>是否倒班<input name="hasShifts" placeholder="两班倒/三班倒"></label>
+        <label>有无吃<input name="hasMeal" placeholder="包吃/工作餐/无"></label>
+        <label>有无住<input name="hasDorm" placeholder="包住/提供宿舍/无"></label>
+        <label>是否需要岗位经验<input name="needExperience" placeholder="是/否"></label>
         <label>用工类型<select name="type"><option>长期工</option><option>短期工</option><option>日结工</option><option>季节工</option></select></label>
-        <label>工作地点<input name="location" required placeholder="如：苏州昆山"></label>
         <label>开始日期<input name="start" type="date" required></label>
         <label>结束日期<input name="end" type="date"></label>
-        <label>需求人数<input name="headcount" type="number" min="1" required value="20"></label>
-        <label>已报名<input name="signed" type="number" min="0" value="0"></label>
-        <label>薪资<input name="salary" required placeholder="如：22元/小时"></label>
-        <label>年龄要求<input name="age" placeholder="如：18-45岁"></label>
       </div>
-      <label>岗位要求与备注<textarea name="notes" placeholder="夜班、住宿、体检、集合地点等"></textarea></label>
+      <label>岗位要求与其他用工要求<textarea name="notes" placeholder="夜班、住宿、体检、集合地点等"></textarea></label>
       <footer>
         <button type="button" data-close-modal="demandModal" class="ghost">取消</button>
         <button class="primary" value="default">保存需求</button>
@@ -300,18 +306,29 @@
         <h2>新增求职者</h2>
         <button type="button" data-close-modal="workerModal" class="icon-btn" aria-label="关闭">×</button>
       </header>
-      <div class="form-grid">
+      <div class="form-grid" style="grid-template-columns:1fr 1fr">
         <label>姓名<input name="name" required></label>
-        <label>手机号<input name="phone" placeholder="求职者联系电话"></label>
+        <label>联系方式<input name="phone" placeholder="求职者联系电话"></label>
         <label>性别<select name="gender"><option value="">未填写</option><option>男</option><option>女</option></select></label>
         <label>年龄<input name="age" type="number" min="16" max="65"></label>
+        <label>学历<input name="education" placeholder="如：初中、高中、大专"></label>
+        <label>报名日期<input name="registrationDate" type="date"></label>
+        <label>面试日期<input name="interviewDate" type="date"></label>
+        <label>希望到岗日期<input name="desiredStartDate" type="date"></label>
+        <label>上份工作岗位<input name="previousJob" placeholder="如：包装工"></label>
+        <label>希望工作单位<input name="desiredCompany" placeholder="如：柳东注塑厂"></label>
+        <label>希望工作岗位<input name="expectedRole" placeholder="如：普工、质检"></label>
+        <label>希望月薪<input name="salary" placeholder="如：6000以上"></label>
+        <label>希望工作区域<input name="desiredArea" placeholder="如：柳东、阳和"></label>
+        <label>是否接受倒班<select name="acceptShifts"><option value="">未确认</option><option>是</option><option>否</option></select></label>
+        <label>是否接受住宿<select name="acceptDorm"><option value="">未确认</option><option>是</option><option>否</option></select></label>
+        <label>是否接受社保<select name="acceptSocialInsurance"><option value="">未确认</option><option>是</option><option>否</option></select></label>
         <label>所在地区<input name="location" required></label>
         <label>可到岗时间<input name="available" required placeholder="如：现在可到岗"></label>
-        <label>期望岗位<input name="expectedRole" placeholder="如：普工、质检、注塑"></label>
         <label>期望周期<select name="period"><option>长期稳定</option><option>1-3个月</option><option>7-15天</option><option>暑假工</option><option>周末兼职</option></select></label>
-        <label>期望薪资<input name="salary" placeholder="如：6000以上"></label>
         <label>稳定性评分<input name="score" type="number" min="0" max="100" value="80"></label>
       </div>
+      <label>其他个人希望<textarea name="otherWishes" placeholder="其他想说明的情况"></textarea></label>
       <label>技能/偏好标签<textarea name="tags" placeholder="用逗号分隔，如：电子厂经验, 接受夜班, 需要住宿"></textarea></label>
       <label>备注<textarea name="note" placeholder="例如：不接受夜班、需要住宿、可周结等"></textarea></label>
       <footer>

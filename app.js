@@ -159,34 +159,52 @@ function renderFuzzyResults() {
 
 function demandFuzzyFields(item) {
   return `
-    <div class="form-grid">
-        <label>企业<input data-field="company" value="${escapeAttr(item.company)}"></label>
-        <label>岗位<input data-field="role" value="${escapeAttr(item.role)}"></label>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr">
+        <label>企业名称<input data-field="company" value="${escapeAttr(item.company)}"></label>
+        <label>企业产品<input data-field="product" value="${escapeAttr(item.product || '')}"></label>
+        <label>岗位名称<input data-field="role" value="${escapeAttr(item.role)}"></label>
+        <label>需求人数<input data-field="headcount" type="number" min="1" value="${Number(item.headcount) || 20}"></label>
+        <label>证件需要与否<input data-field="needId" value="${escapeAttr(item.needId || '')}"></label>
+        <label>工作地点<input data-field="location" value="${escapeAttr(item.location)}"></label>
+        <label>月薪<input data-field="salary" value="${escapeAttr(item.salary)}"></label>
+        <label>年龄要求<input data-field="age" value="${escapeAttr(item.age)}"></label>
+        <label>性别要求<input data-field="genderRequired" value="${escapeAttr(item.genderRequired || '')}"></label>
+        <label>是否倒班<input data-field="hasShifts" value="${escapeAttr(item.hasShifts || '')}"></label>
+        <label>有无吃<input data-field="hasMeal" value="${escapeAttr(item.hasMeal || '')}"></label>
+        <label>有无住<input data-field="hasDorm" value="${escapeAttr(item.hasDorm || '')}"></label>
+        <label>是否需要岗位经验<input data-field="needExperience" value="${escapeAttr(item.needExperience || '')}"></label>
         <label>类型<select data-field="type">${["长期工", "短期工", "日结工", "季节工"].map(type => `<option ${item.type === type ? "selected" : ""}>${type}</option>`).join("")}</select></label>
-        <label>地点<input data-field="location" value="${escapeAttr(item.location)}"></label>
         <label>开始日期<input data-field="start" type="date" value="${escapeAttr(item.start)}"></label>
         <label>结束日期<input data-field="end" type="date" value="${escapeAttr(item.end)}"></label>
-        <label>人数<input data-field="headcount" type="number" min="1" value="${Number(item.headcount) || 20}"></label>
-        <label>年龄<input data-field="age" value="${escapeAttr(item.age)}"></label>
-        <label>薪资<input data-field="salary" value="${escapeAttr(item.salary)}"></label>
       </div>
-      <label>原文/备注<textarea data-field="notes">${escapeHtml(item.notes || "")}</textarea></label>
+      <label>其他用工要求/备注<textarea data-field="notes">${escapeHtml(item.notes || "")}</textarea></label>
   `;
 }
 
 function workerFuzzyFields(item) {
   return `
-    <div class="form-grid">
+    <div class="form-grid" style="grid-template-columns:1fr 1fr">
       <label>姓名<input data-field="name" value="${escapeAttr(item.name)}"></label>
-      <label>手机号<input data-field="phone" value="${escapeAttr(item.phone)}"></label>
+      <label>联系方式<input data-field="phone" value="${escapeAttr(item.phone)}"></label>
       <label>性别<select data-field="gender"><option value="">未确认</option><option ${item.gender === "男" ? "selected" : ""}>男</option><option ${item.gender === "女" ? "selected" : ""}>女</option></select></label>
       <label>年龄<input data-field="age" value="${escapeAttr(item.age)}"></label>
+      <label>学历<input data-field="education" value="${escapeAttr(item.education || '')}"></label>
+      <label>报名日期<input data-field="registrationDate" value="${escapeAttr(item.registrationDate || '')}"></label>
+      <label>面试日期<input data-field="interviewDate" value="${escapeAttr(item.interviewDate || '')}"></label>
+      <label>希望到岗日期<input data-field="desiredStartDate" value="${escapeAttr(item.desiredStartDate || '')}"></label>
+      <label>上份工作岗位<input data-field="previousJob" value="${escapeAttr(item.previousJob || '')}"></label>
+      <label>希望工作单位<input data-field="desiredCompany" value="${escapeAttr(item.desiredCompany || '')}"></label>
+      <label>希望工作岗位<input data-field="expectedRole" value="${escapeAttr(item.expectedRole)}"></label>
+      <label>希望月薪<input data-field="salary" value="${escapeAttr(item.salary)}"></label>
+      <label>希望工作区域<input data-field="desiredArea" value="${escapeAttr(item.desiredArea || '')}"></label>
+      <label>是否接受倒班<select data-field="acceptShifts"><option value="">未确认</option><option ${item.acceptShifts === "是" ? "selected" : ""}>是</option><option ${item.acceptShifts === "否" ? "selected" : ""}>否</option></select></label>
+      <label>是否接受住宿<select data-field="acceptDorm"><option value="">未确认</option><option ${item.acceptDorm === "是" ? "selected" : ""}>是</option><option ${item.acceptDorm === "否" ? "selected" : ""}>否</option></select></label>
+      <label>是否接受社保<select data-field="acceptSocialInsurance"><option value="">未确认</option><option ${item.acceptSocialInsurance === "是" ? "selected" : ""}>是</option><option ${item.acceptSocialInsurance === "否" ? "selected" : ""}>否</option></select></label>
       <label>地区<input data-field="location" value="${escapeAttr(item.location)}"></label>
       <label>可到岗<input data-field="available" value="${escapeAttr(item.available)}"></label>
       <label>周期<input data-field="period" value="${escapeAttr(item.period)}"></label>
-      <label>期望岗位<input data-field="expectedRole" value="${escapeAttr(item.expectedRole)}"></label>
-      <label>期望薪资<input data-field="salary" value="${escapeAttr(item.salary)}"></label>
     </div>
+    <label>其他个人希望<textarea data-field="otherWishes">${escapeHtml(item.otherWishes || "")}</textarea></label>
     <label>标签<textarea data-field="tags">${escapeHtml((item.tags || []).join(", "))}</textarea></label>
     <label>原文/备注<textarea data-field="note">${escapeHtml(item.note || "")}</textarea></label>
   `;
@@ -324,18 +342,19 @@ function renderWorkers() {
       <article class="worker-card">
         <h3>${h(worker.name)}</h3>
         <p class="item-meta">${h(worker.location)}｜${h(worker.available)}｜${h(worker.period)}</p>
-        <p class="item-meta">${[worker.gender, worker.age ? `${worker.age}岁` : "", worker.phone].filter(Boolean).map(h).join("｜") || "基础信息待补充"}</p>
-        ${worker.expectedRole ? `<p>期望岗位：${h(worker.expectedRole)}</p>` : ""}
-        <p>${h(worker.salary || "薪资待确认")}｜稳定性 ${Number(worker.score) || 0} 分</p>
+        <p class="item-meta">${[worker.gender, worker.age ? `${worker.age}岁` : "", worker.phone, worker.education].filter(Boolean).map(h).join("｜") || "基础信息待补充"}</p>
+        ${worker.expectedRole ? `<p>期望岗位：${h(worker.expectedRole)}${worker.desiredCompany ? ` @ ${h(worker.desiredCompany)}` : ""}</p>` : ""}
+        <p>${h(worker.salary || "薪资待确认")}｜稳定性 ${Number(worker.score) || 0} 分${worker.desiredArea ? `｜${h(worker.desiredArea)}` : ""}</p>
+        ${worker.previousJob ? `<p class="item-meta">上份工作：${h(worker.previousJob)}</p>` : ""}
         ${worker.note ? `<p class="item-meta">备注：${h(worker.note)}</p>` : ""}
-        <div class="tags">${worker.tags.map(item => tag(item)).join("")}</div>
+        <div class="tags">${worker.tags.map(item => tag(item)).join("")}${worker.acceptShifts ? tag(worker.acceptShifts === "是" ? "可倒班" : "不倒班") : ""}${worker.acceptDorm ? tag(worker.acceptDorm === "是" ? "要住宿" : "不住宿") : ""}</div>
         <div class="item" style="margin-top:12px">
           <strong>推荐岗位</strong>
           <span class="item-meta">${best ? `${h(best.demand.company)} · ${h(best.demand.role)}（${best.score}分）` : "暂无合适岗位"}</span>
         </div>
       </article>
     `;
-  }).join("");
+  }).join(""); // end workerGrid
 }
 
 function renderKnowledge() {

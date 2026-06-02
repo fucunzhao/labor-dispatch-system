@@ -391,6 +391,7 @@ def init_db():
             "company_key": "TEXT DEFAULT ''",
         })
         ensure_worker_columns(conn)
+        ensure_demand_columns(conn)
         ensure_knowledge_columns(conn)
         demand_count = conn.execute("SELECT COUNT(*) FROM demands").fetchone()[0]
         if demand_count == 0:
@@ -431,6 +432,34 @@ def ensure_worker_columns(conn):
         "expected_role": "TEXT DEFAULT ''",
         "note": "TEXT DEFAULT ''",
         "source": "TEXT DEFAULT ''",
+        # 新模板字段 - 求职者信息
+        "registration_date": "TEXT DEFAULT ''",
+        "interview_date": "TEXT DEFAULT ''",
+        "desired_start_date": "TEXT DEFAULT ''",
+        "previous_job": "TEXT DEFAULT ''",
+        "education": "TEXT DEFAULT ''",
+        "has_interviewed": "TEXT DEFAULT ''",
+        "has_employed": "TEXT DEFAULT ''",
+        "employ_date": "TEXT DEFAULT ''",
+        "desired_company": "TEXT DEFAULT ''",
+        "desired_role": "TEXT DEFAULT ''",
+        "accept_shifts": "TEXT DEFAULT ''",
+        "accept_dorm": "TEXT DEFAULT ''",
+        "accept_social_insurance": "TEXT DEFAULT ''",
+        "desired_area": "TEXT DEFAULT ''",
+        "other_wishes": "TEXT DEFAULT ''",
+    })
+
+def ensure_demand_columns(conn):
+    ensure_table_columns(conn, "demands", {
+        # 新模板字段 - 企业用工信息
+        "product": "TEXT DEFAULT ''",
+        "need_id": "TEXT DEFAULT ''",
+        "gender_required": "TEXT DEFAULT ''",
+        "need_experience": "TEXT DEFAULT ''",
+        "has_shifts": "TEXT DEFAULT ''",
+        "has_meal": "TEXT DEFAULT ''",
+        "has_dorm": "TEXT DEFAULT ''",
     })
 
 
@@ -449,11 +478,13 @@ def ensure_knowledge_columns(conn):
 
 
 def row_to_demand(row):
+    row = dict(row)
     return {
         "id": row["id"],
         "accountId": row["account_id"],
         "companyKey": row["company_key"],
         "company": row["company"],
+        "product": row.get("product", ""),
         "role": row["role"],
         "type": row["type"],
         "location": row["location"],
@@ -463,11 +494,18 @@ def row_to_demand(row):
         "signed": row["signed"],
         "salary": row["salary"],
         "age": row["age"],
+        "genderRequired": row.get("gender_required", ""),
+        "needId": row.get("need_id", ""),
+        "needExperience": row.get("need_experience", ""),
+        "hasShifts": row.get("has_shifts", ""),
+        "hasMeal": row.get("has_meal", ""),
+        "hasDorm": row.get("has_dorm", ""),
         "notes": row["notes"],
     }
 
 
 def row_to_worker(row):
+    row = dict(row)
     return {
         "id": row["id"],
         "accountId": row["account_id"],
@@ -484,6 +522,21 @@ def row_to_worker(row):
         "score": row["score"],
         "note": row["note"],
         "source": row["source"],
+        "registrationDate": row.get("registration_date", ""),
+        "interviewDate": row.get("interview_date", ""),
+        "desiredStartDate": row.get("desired_start_date", ""),
+        "previousJob": row.get("previous_job", ""),
+        "education": row.get("education", ""),
+        "hasInterviewed": row.get("has_interviewed", ""),
+        "hasEmployed": row.get("has_employed", ""),
+        "employDate": row.get("employ_date", ""),
+        "desiredCompany": row.get("desired_company", ""),
+        "desiredRole": row.get("desired_role", ""),
+        "acceptShifts": row.get("accept_shifts", ""),
+        "acceptDorm": row.get("accept_dorm", ""),
+        "acceptSocialInsurance": row.get("accept_social_insurance", ""),
+        "desiredArea": row.get("desired_area", ""),
+        "otherWishes": row.get("other_wishes", ""),
         "tags": [item.strip() for item in (row["tags"] or "").replace("，", ",").split(",") if item.strip()],
     }
 
@@ -543,13 +596,24 @@ def demand_knowledge(row):
         "不用体检" if "不用体检" in demand["notes"] else "",
         "夜班" if "夜班" in demand["notes"] or "两班倒" in demand["notes"] else "",
         "住宿" if "住宿" in demand["notes"] or "宿舍" in demand["notes"] else "",
+        f"经验{'-' if demand.get('needExperience') == '否' else ''}要求" if demand.get("needExperience") else "",
     ]
     tags = [item for item in tags if item]
+    product_info = f"（{demand['product']}）" if demand.get("product") else ""
     summary = (
-        f"{demand['company']}招聘{demand['role']}，{demand['type']}，地点{demand['location']}，"
+        f"{demand['company']}{product_info}招聘{demand['role']}，{demand['type']}，地点{demand['location']}，"
         f"需求{demand['headcount']}人，已报名{demand['signed']}人，薪资{demand['salary']}，"
-        f"年龄要求{demand['age'] or '未填写'}。关键规则：{demand['notes']}"
+        f"年龄要求{demand['age'] or '未填写'}"
     )
+    extra = []
+    if demand.get("genderRequired"): extra.append(f"性别要求：{demand['genderRequired']}")
+    if demand.get("hasShifts"): extra.append(f"倒班：{demand['hasShifts']}")
+    if demand.get("hasMeal"): extra.append(f"伙食：{demand['hasMeal']}")
+    if demand.get("hasDorm"): extra.append(f"住宿：{demand['hasDorm']}")
+    if demand.get("needId"): extra.append(f"证件：{demand['needId']}")
+    if extra:
+        summary += "。" + "；".join(extra)
+    summary += f"。关键规则：{demand['notes']}"
     return {
         "category": "企业岗位规则",
         "title": f"{demand['company']}｜{demand['role']}",
@@ -571,9 +635,20 @@ def worker_knowledge(row):
     summary = (
         f"{worker['name']}，{worker.get('gender') or '性别未填'}，{worker.get('age') or '年龄未填'}岁，"
         f"电话{worker.get('phone') or '未填'}，当前地区{worker['location']}，{worker['available']}，"
-        f"期望周期{worker['period']}，期望岗位{worker['expectedRole'] or '未填'}，期望薪资{worker['salary'] or '未填'}。"
-        f"备注：{worker['note'] or '无'}"
+        f"期望周期{worker['period']}，期望岗位{worker['expectedRole'] or '未填'}，期望薪资{worker['salary'] or '未填'}"
     )
+    extra = []
+    if worker.get("education"): extra.append(f"学历：{worker['education']}")
+    if worker.get("previousJob"): extra.append(f"上份工作：{worker['previousJob']}")
+    if worker.get("desiredCompany"): extra.append(f"希望单位：{worker['desiredCompany']}")
+    if worker.get("desiredArea"): extra.append(f"希望区域：{worker['desiredArea']}")
+    if worker.get("acceptShifts"): extra.append(f"接受倒班：{worker['acceptShifts']}")
+    if worker.get("acceptDorm"): extra.append(f"接受住宿：{worker['acceptDorm']}")
+    if worker.get("acceptSocialInsurance"): extra.append(f"接受社保：{worker['acceptSocialInsurance']}")
+    if worker.get("otherWishes"): extra.append(f"其他：{worker['otherWishes']}")
+    if extra:
+        summary += "。" + "；".join(extra)
+    summary += f"。备注：{worker['note'] or '无'}"
     return {
         "category": "求职者画像",
         "title": f"{worker['name']}｜{worker['location']}｜{worker['period']}",
@@ -982,6 +1057,7 @@ def parse_fuzzy_demands(text):
         results.append(
             {
                 "company": company,
+                "product": find_first([r"产品[:：]?\s*([^\n，,。；;]+)", r"主营[:：]?\s*([^\n，,。；;]+)"], section, ""),
                 "role": infer_role(section),
                 "type": infer_type(section),
                 "location": infer_location(section, company),
@@ -991,6 +1067,12 @@ def parse_fuzzy_demands(text):
                 "signed": 0,
                 "salary": infer_salary(section),
                 "age": infer_age(section),
+                "genderRequired": "男" if "男" in section[:200] else ("女" if "女" in section[:200] else ""),
+                "needId": find_first([r"证件[:：]?\s*(\S+)", r"(需身份证|带身份证|证件照)"], section, ""),
+                "needExperience": find_first([r"(?:是否|需要|要求)\s*(\S*经验)", r"经验\s*(\S*要求)"], section, ""),
+                "hasShifts": find_first([r"是否\s*(\S*倒班)", r"(两班倒|三班倒)", r"(倒班)"], section, ""),
+                "hasMeal": find_first([r"(\S*包吃|\S*工作餐|\S*有食堂|\S*免费餐)"], section, ""),
+                "hasDorm": find_first([r"(\S*包住|\S*提供住宿|\S*有宿舍)", r"(\S*住宿费)"], section, ""),
                 "notes": section[:1800],
                 "confidence": 72,
                 "sourceText": section,
@@ -1030,6 +1112,21 @@ def parse_fuzzy_workers(text):
             "note": section[:1200],
             "source": "模糊采集",
             "confidence": 68,
+            "registrationDate": find_first([r"报名日期[:：]\s*(\d{4}-\d{2}-\d{2})", r"报名[:：]\s*(\d{4}-\d{2}-\d{2})"], section, ""),
+            "interviewDate": find_first([r"面试日期[:：]\s*(\d{4}-\d{2}-\d{2})", r"面试[:：]\s*(\d{4}-\d{2}-\d{2})"], section, ""),
+            "desiredStartDate": find_first([r"希望到岗[:：]\s*(\d{4}-\d{2}-\d{2})", r"到岗日期[:：]\s*([^\n]+)"], section, ""),
+            "previousJob": find_first([r"上份工作[:：]?\s*([^\n，,。；;]+)", r"以前做[:：]?\s*([^\n，,。；;]+)"], section, ""),
+            "education": find_first([r"学历[:：]?\s*([^\n，,。；;]+)"], section, ""),
+            "hasInterviewed": "",
+            "hasEmployed": "",
+            "employDate": "",
+            "desiredCompany": find_first([r"希望单位[:：]?\s*([^\n，,。；;]+)", r"想去[:：]?\s*([^\n，,。；;]+)"], section, ""),
+            "desiredRole": role,
+            "acceptShifts": "是" if "接受倒班" in section or "能倒班" in section else ("否" if "不接受夜班" in section or "不能倒班" in section else ""),
+            "acceptDorm": "是" if "需要住宿" in section or "要住宿" in section else ("否" if "不需要住宿" in section or "不住宿" in section else ""),
+            "acceptSocialInsurance": find_first([r"社保[:：]?\s*([^\n，,。；;]+)", r"[是否]*接受社保"], section, ""),
+            "desiredArea": find_first([r"希望区域[:：]?\s*([^\n，,。；;]+)", r"想去[^\n的]+(?:柳东|鹿寨|阳和|新兴|河西|柳北)"], section, ""),
+            "otherWishes": find_first([r"其他[:：]?\s*([^\n]+)"], section, ""),
         })
     return items
 
@@ -1116,13 +1213,14 @@ def insert_demand(conn, body, account=None):
     cursor = conn.execute(
         """
         INSERT INTO demands
-        (account_id, company_key, company, role, type, location, start_date, end_date, headcount, signed, salary, age, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (account_id, company_key, company, product, role, type, location, start_date, end_date, headcount, signed, salary, age, gender_required, need_id, need_experience, has_shifts, has_meal, has_dorm, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             account_id,
             company_key,
             body.get("company", "").strip(),
+            body.get("product", "").strip(),
             body.get("role", "").strip(),
             body.get("type", "长期工"),
             body.get("location", "").strip(),
@@ -1132,6 +1230,12 @@ def insert_demand(conn, body, account=None):
             int(body.get("signed") or 0),
             body.get("salary", "").strip(),
             body.get("age", "").strip(),
+            body.get("genderRequired", body.get("gender_required", "")),
+            body.get("needId", body.get("need_id", "")),
+            body.get("needExperience", body.get("need_experience", "")),
+            body.get("hasShifts", body.get("has_shifts", "")),
+            body.get("hasMeal", body.get("has_meal", "")),
+            body.get("hasDorm", body.get("has_dorm", "")),
             body.get("notes", "").strip(),
         ),
     )
@@ -1146,8 +1250,8 @@ def _do_insert_worker(conn, body, account_id, company_key):
     cursor = conn.execute(
         """
         INSERT INTO workers
-        (account_id, company_key, name, phone, gender, age, location, available, period, expected_role, salary, score, tags, note, source)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (account_id, company_key, name, phone, gender, age, location, available, period, expected_role, salary, score, tags, note, source, registration_date, interview_date, desired_start_date, previous_job, education, has_interviewed, has_employed, employ_date, desired_company, desired_role, accept_shifts, accept_dorm, accept_social_insurance, desired_area, other_wishes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             int(account_id or 0),
@@ -1165,6 +1269,21 @@ def _do_insert_worker(conn, body, account_id, company_key):
             str(tags),
             body.get("note", "").strip(),
             body.get("source", "业务员录入").strip(),
+            body.get("registrationDate", body.get("registration_date", "")),
+            body.get("interviewDate", body.get("interview_date", "")),
+            body.get("desiredStartDate", body.get("desired_start_date", "")),
+            body.get("previousJob", body.get("previous_job", "")),
+            body.get("education", body.get("education", "")),
+            body.get("hasInterviewed", body.get("has_interviewed", "")),
+            body.get("hasEmployed", body.get("has_employed", "")),
+            body.get("employDate", body.get("employ_date", "")),
+            body.get("desiredCompany", body.get("desired_company", "")),
+            body.get("desiredRole", body.get("desired_role", "")),
+            body.get("acceptShifts", body.get("accept_shifts", "")),
+            body.get("acceptDorm", body.get("accept_dorm", "")),
+            body.get("acceptSocialInsurance", body.get("accept_social_insurance", "")),
+            body.get("desiredArea", body.get("desired_area", "")),
+            body.get("otherWishes", body.get("other_wishes", "")),
         ),
     )
     return cursor.lastrowid
