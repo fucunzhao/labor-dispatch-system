@@ -127,6 +127,59 @@ function renderAll() {
 }
 
 renderFuzzyResults();
+
+// ── 角色权限矩阵 ──────────────────────────────────
+const ROLE_PERMISSIONS = {
+  demands: { write: ["owner", "sales"], delete: ["owner", "sales"] },
+  workers: { write: ["owner", "sales", "service"], delete: ["owner", "sales"] },
+  pipeline: { assign: ["owner", "sales"], advance: ["owner", "dispatcher"], revert: ["owner", "dispatcher"] },
+  knowledge: { write: ["owner", "service"] },
+  collector: { write: ["owner", "sales"] },
+  account: { write: ["owner"] },
+};
+
+function hasRole(view, action) {
+  const perm = ROLE_PERMISSIONS[view];
+  if (!perm || !perm[action]) return false;
+  return perm[action].includes("all") || (account && perm[action].includes(account.role));
+}
+
+function renderPermissions() {
+  const role = account ? account.role : null;
+  document.querySelectorAll(".nav-item[data-role]").forEach(item => {
+    const roles = item.dataset.role;
+    if (roles === "all") { item.style.display = ""; }
+    else if (role) {
+      const allowed = roles.split(",").map(r => r.trim());
+      item.style.display = allowed.includes(role) ? "" : "none";
+    } else { item.style.display = ""; }
+  });
+  document.querySelectorAll("[data-role]:not(.nav-item)").forEach(item => {
+    const roles = item.dataset.role;
+    if (role && roles) {
+      const allowed = roles.split(",").map(r => r.trim());
+      if (!allowed.includes("all") && !allowed.includes(role)) { item.style.display = "none"; return; }
+    }
+    item.style.display = "";
+  });
+  document.querySelectorAll("[data-perm]").forEach(el => {
+    const [view, action] = el.dataset.perm.split(".");
+    el.style.display = hasRole(view, action) ? "" : "none";
+  });
+  document.querySelectorAll("[data-write]").forEach(el => {
+    if (el.dataset.role || el.dataset.perm) return;
+    const view = el.dataset.write;
+    const allowed = (view && ROLE_PERMISSIONS[view]) ? ROLE_PERMISSIONS[view].write || [] : [];
+    if (role && view && allowed.length > 0) {
+      el.style.display = allowed.includes(role) ? "" : "none";
+    } else { el.style.display = ""; }
+  });
+  const activeNav = document.querySelector(".nav-item.active");
+  if (activeNav && activeNav.style.display === "none") {
+    document.querySelector(".nav-item[data-view='dashboard']").click();
+  }
+}
+
 renderAccount();
 
 function renderAccount() {
@@ -150,98 +203,6 @@ function renderAccount() {
   });
   renderPermissions();
   renderApplicantLink();
-}
-
-// ── 角色权限矩阵 ──────────────────────────────────
-// 每个视图对应的角色控制：
-//   nav: 哪些角色能看到导航入口（"all"=全部）
-//   write: 哪些角色有写权限（表单提交、删除等操作）
-//   special: 特殊操作的角色限制
-const ROLE_PERMISSIONS = {
-  // 导航入口已通过 data-role 控制，这里定义按钮级权限
-  demands: {
-    write: ["owner", "sales"],            // 增删改需求
-    delete: ["owner", "sales"],           // 删除需求
-  },
-  workers: {
-    write: ["owner", "sales", "service"], // 录入/编辑求职者
-    delete: ["owner", "sales"],            // 删除求职者
-  },
-  pipeline: {
-    assign: ["owner", "sales"],           // 分配岗位
-    advance: ["owner", "dispatcher"],     // 推进状态（面试/到岗/在岗）
-    revert: ["owner", "dispatcher"],      // 退回/离职
-  },
-  knowledge: {
-    write: ["owner", "service"],          // 编辑知识库
-  },
-  collector: {
-    write: ["owner", "sales"],            // 模糊采集
-  },
-  account: {
-    write: ["owner"],                     // 账号管理
-  },
-};
-
-function hasRole(view, action) {
-  const perm = ROLE_PERMISSIONS[view];
-  if (!perm || !perm[action]) return false;
-  return perm[action].includes("all") || (account && perm[action].includes(account.role));
-}
-
-function renderPermissions() {
-  const role = account ? account.role : null;
-
-  // 1. 导航菜单权限：按 data-role 属性控制显示
-  document.querySelectorAll(".nav-item[data-role]").forEach(item => {
-    const roles = item.dataset.role;
-    if (roles === "all") {
-      item.style.display = "";
-    } else if (role) {
-      const allowed = roles.split(",").map(r => r.trim());
-      item.style.display = allowed.includes(role) ? "" : "none";
-    } else {
-      item.style.display = ""; // 未登录全部显示（但已有 data-write 禁用）
-    }
-  });
-
-  // 2. 一般按钮/元素的 data-role 权限（非导航）
-  document.querySelectorAll("[data-role]:not(.nav-item)").forEach(item => {
-    const roles = item.dataset.role;
-    if (role && roles) {
-      const allowed = roles.split(",").map(r => r.trim());
-      if (!allowed.includes("all") && !allowed.includes(role)) {
-        item.style.display = "none";
-        return;
-      }
-    }
-    item.style.display = "";
-  });
-
-  // 3. 按钮级权限：通过 data-perm 属性控制
-  document.querySelectorAll("[data-perm]").forEach(el => {
-    const [view, action] = el.dataset.perm.split(".");
-    el.style.display = hasRole(view, action) ? "" : "none";
-  });
-
-  // 4. 写操作控件：data-write 改为按角色控制
-  document.querySelectorAll("[data-write]").forEach(el => {
-    // 跳过已经有 data-role 或 data-perm 的（避免重复处理）
-    if (el.dataset.role || el.dataset.perm) return;
-    const view = el.dataset.write;
-    const allowed = (view && ROLE_PERMISSIONS[view]) ? ROLE_PERMISSIONS[view].write || [] : [];
-    if (role && view && allowed.length > 0) {
-      el.style.display = allowed.includes(role) ? "" : "none";
-    } else {
-      el.style.display = "";
-    }
-  });
-
-  // 5. 如果当前激活的视图被隐藏了，切回总览
-  const activeNav = document.querySelector(".nav-item.active");
-  if (activeNav && activeNav.style.display === "none") {
-    document.querySelector(".nav-item[data-view='dashboard']").click();
-  }
 }
 
 // ── 求职者自助登记链接 ────────────────────────────
