@@ -418,6 +418,13 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_pipeline_company ON recruitment_pipeline(company_key);
             CREATE INDEX IF NOT EXISTS idx_pipeline_demand ON recruitment_pipeline(demand_id);
+            CREATE INDEX IF NOT EXISTS idx_pipeline_worker ON recruitment_pipeline(worker_id);
+            CREATE INDEX IF NOT EXISTS idx_workers_phone ON workers(phone);
+            CREATE INDEX IF NOT EXISTS idx_workers_company ON workers(company_key);
+            CREATE INDEX IF NOT EXISTS idx_demands_company ON demands(company_key);
+            CREATE INDEX IF NOT EXISTS idx_accounts_phone ON accounts(phone);
+            CREATE INDEX IF NOT EXISTS idx_accounts_company ON accounts(company_key);
+            CREATE INDEX IF NOT EXISTS idx_knowledge_company ON knowledge_entries(company_key);
             """
         )
         ensure_table_columns(conn, "demands", {"account_id": "INTEGER DEFAULT 0"})
@@ -1108,6 +1115,15 @@ def can_write(account):
     )
 
 
+def check_role(account, *required_roles):
+    """检查账号是否拥有指定角色之一。返回 True/False。"""
+    if not account:
+        return False
+    if not required_roles:
+        return True  # 不限制角色则放行
+    return account.get("role") in required_roles
+
+
 def split_fuzzy_sections(text):
     cleaned = text.replace("\r\n", "\n").replace("\r", "\n").strip()
     parts = re.split(r"\n\s*\n+|(?=\n?乐颜～[:：]?)", cleaned)
@@ -1723,6 +1739,9 @@ class Handler(SimpleHTTPRequestHandler):
             if not account:
                 self.send_json({"ok": False, "error": "请先登录"}, status=401)
                 return
+            if not check_role(account, "owner"):
+                self.send_json({"ok": False, "error": "仅老板/管理员可查看账号列表"}, status=403)
+                return
             with connect() as conn:
                 company_key = account.get("companyKey", "")
                 rows = conn.execute(
@@ -2022,8 +2041,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json({"ok": True, "account": account_public(row), "msg": "资料更新成功"})
             return
         if parsed.path == "/api/pipeline/assign":
-            if not can_write(account):
-                self.send_json({"ok": False, "error": "无权限"}, status=403)
+            if not check_role(account, "owner", "sales"):
+                self.send_json({"ok": False, "error": "仅老板/业务员可分配岗位"}, status=403)
                 return
             body = self.read_json()
             demand_id = int(body.get("demand_id") or 0)
@@ -2043,8 +2062,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json({"ok": True})
             return
         if parsed.path == "/api/pipeline/status":
-            if not can_write(account):
-                self.send_json({"ok": False, "error": "无权限"}, status=403)
+            if not check_role(account, "owner", "dispatcher"):
+                self.send_json({"ok": False, "error": "仅老板/调度员可推进招聘流程"}, status=403)
                 return
             body = self.read_json()
             pipeline_id = int(body.get("pipeline_id") or 0)
@@ -2156,8 +2175,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json({"ok": True})
             return
         if parsed.path == "/api/demands":
-            if not can_write(account):
-                self.send_json({"ok": False, "error": "请先登录账号后再修改信息"}, status=401)
+            if not check_role(account, "owner", "sales"):
+                self.send_json({"ok": False, "error": "仅老板/业务员可管理企业需求"}, status=403)
                 return
             body = self.read_json()
             with connect() as conn:
@@ -2226,8 +2245,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json({"ok": True, "ids": ids, "data": get_payload(account)})
             return
         if parsed.path == "/api/workers":
-            if not can_write(account):
-                self.send_json({"ok": False, "error": "请先登录账号后再修改信息"}, status=401)
+            if not check_role(account, "owner", "sales", "service"):
+                self.send_json({"ok": False, "error": "仅老板/业务员/客服可管理求职者"}, status=403)
                 return
             body = self.read_json()
             with connect() as conn:
@@ -2280,8 +2299,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json({"ok": True, "data": get_payload(account)})
             return
         if parsed.path == "/api/knowledge/save":
-            if not can_write(account):
-                self.send_json({"ok": False, "error": "请先登录账号后再维护知识库"}, status=401)
+            if not check_role(account, "owner", "service"):
+                self.send_json({"ok": False, "error": "仅老板/客服可维护知识库"}, status=403)
                 return
             body = self.read_json()
             try:
@@ -2292,8 +2311,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json({"ok": False, "error": str(exc)}, status=400)
             return
         if parsed.path == "/api/knowledge/delete":
-            if not can_write(account):
-                self.send_json({"ok": False, "error": "请先登录账号后再维护知识库"}, status=401)
+            if not check_role(account, "owner", "service"):
+                self.send_json({"ok": False, "error": "仅老板/客服可删除知识库"}, status=403)
                 return
             body = self.read_json()
             with connect() as conn:
@@ -2301,8 +2320,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json({"ok": True, "count": count, "data": get_payload(account)})
             return
         if parsed.path == "/api/knowledge/batch-delete":
-            if not can_write(account):
-                self.send_json({"ok": False, "error": "请先登录账号后再维护知识库"}, status=401)
+            if not check_role(account, "owner", "service"):
+                self.send_json({"ok": False, "error": "仅老板/客服可批量删除知识库"}, status=403)
                 return
             body = self.read_json()
             with connect() as conn:
@@ -2310,8 +2329,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json({"ok": True, "count": count, "data": get_payload(account)})
             return
         if parsed.path == "/api/knowledge/batch-update":
-            if not can_write(account):
-                self.send_json({"ok": False, "error": "请先登录账号后再维护知识库"}, status=401)
+            if not check_role(account, "owner", "service"):
+                self.send_json({"ok": False, "error": "仅老板/客服可批量修改知识库"}, status=403)
                 return
             body = self.read_json()
             with connect() as conn:

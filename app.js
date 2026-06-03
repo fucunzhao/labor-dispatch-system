@@ -1,6 +1,16 @@
 const today = new Date();
 const currentYear = today.getFullYear();
 
+// ── 全局错误边界 ──────────────────────────────────
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('[全局] 未处理的 Promise 拒绝:', event.reason);
+  event.preventDefault();
+});
+
+window.addEventListener('error', (event) => {
+  console.error('[全局] 脚本错误:', event.error || event.message);
+});
+
 let data = {
   demands: [],
   workers: [],
@@ -1118,8 +1128,13 @@ els.knowledgeBatchForm.addEventListener("submit", async event => {
 });
 
 loadData().catch(error => {
+  console.error('[数据加载]', error);
   els.sideSummary.textContent = "后台服务未连接，请先启动 server.py。";
   els.metrics.innerHTML = `<article class="metric"><span>系统状态</span><strong>未连接</strong></article>`;
+  // 确保页面不白屏：总览视图至少显示指标
+  if (!els.metrics.querySelector('strong')) {
+    els.metrics.innerHTML += '<article class="metric"><span>提示</span><strong>请登录或刷新页面重试</strong></article>';
+  }
 });
 
 // ── 招聘流程 / Pipeline ────────────────────────────
