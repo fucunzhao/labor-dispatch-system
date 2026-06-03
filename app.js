@@ -1190,7 +1190,16 @@ async function assignWorkerToDemand(workerId, demandId) {
       body: JSON.stringify({ worker_id: workerId, demand_id: demandId })
     });
     if (resp.ok) {
-      alert("分配成功");
+      document.querySelector("#assignModal")?.close();
+      const worker = data.workers.find(w => w.id === workerId);
+      const demand = data.demands.find(d => d.id === demandId);
+      const name = worker ? worker.name : `#${workerId}`;
+      const role = demand ? `${demand.company} ${demand.role}` : `#${demandId}`;
+      const toast = document.createElement("div");
+      toast.className = "toast-success";
+      toast.textContent = `✅ ${name} → ${role} 分配成功`;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2500);
       loadPipelines();
       loadData();
     } else {
@@ -1223,42 +1232,102 @@ document.querySelector(".login-tabs")?.addEventListener("click", function(e) {
 });
 
 // ── 分配岗位/求职者 弹窗 ──────────────────────────
+let assignMode = "worker"; // "worker" = 给求职者分配岗位, "demand" = 给岗位分配求职者
+
 function showAssignWorker(workerId) {
-  const demands = data.demands.filter(d => remaining(d) > 0);
-  const sel = document.querySelector("#assignSelect");
-  sel.innerHTML = demands.map(d =>
-    `<option value="${d.id}">${h(d.company)} — ${h(d.role)}（缺${remaining(d)}人）${d.salary ? '｜' + h(d.salary) : ''}</option>`
-  ).join("") || '<option value="">暂无可用岗位</option>';
+  assignMode = "worker";
   document.querySelector("#assignWorkerId").value = workerId;
   document.querySelector("#assignDemandId").value = "";
-  document.querySelector("#assignModalTitle").textContent = "分配岗位 — 为该求职者选择岗位";
+  document.querySelector("#assignModalTitle").textContent = "分配岗位";
   const worker = data.workers.find(w => w.id === workerId);
-  document.querySelector("#assignModalInfo").textContent = worker ? `求职者：${worker.name} ${worker.phone || ''}` : "";
-  document.querySelector("#assignLabel").style.display = "";
+  document.querySelector("#assignCount").textContent = worker ? `为 ${worker.name} 选择岗位` : "选择岗位";
+  renderAssignOptions("");
+  document.querySelector("#assignSearch").value = "";
   document.querySelector("#assignModal").showModal();
+  setTimeout(() => document.querySelector("#assignSearch")?.focus(), 100);
 }
 
 function showAssignDemand(demandId) {
-  const workers = data.workers;
-  const sel = document.querySelector("#assignSelect");
-  sel.innerHTML = workers.map(w =>
-    `<option value="${w.id}">${h(w.name)}${w.phone ? ' 📞' + h(w.phone) : ''}｜${h(w.location)}｜${h(w.period)}｜${w.score}分</option>`
-  ).join("") || '<option value="">暂无求职者</option>';
+  assignMode = "demand";
   document.querySelector("#assignDemandId").value = demandId;
   document.querySelector("#assignWorkerId").value = "";
-  document.querySelector("#assignModalTitle").textContent = "分配求职者 — 选择该岗位的求职者";
+  document.querySelector("#assignModalTitle").textContent = "分配求职者";
   const demand = data.demands.find(d => d.id === demandId);
-  document.querySelector("#assignModalInfo").textContent = demand ? `岗位：${demand.company} ${demand.role}（缺${remaining(demand)}人）` : "";
-  document.querySelector("#assignLabel").style.display = "";
+  document.querySelector("#assignCount").textContent = demand ? `为 ${demand.company} ${demand.role} 选择求职者` : "选择求职者";
+  renderAssignOptions("");
+  document.querySelector("#assignSearch").value = "";
   document.querySelector("#assignModal").showModal();
+  setTimeout(() => document.querySelector("#assignSearch")?.focus(), 100);
 }
 
-document.querySelector("#assignConfirmBtn")?.addEventListener("click", function(e) {
+function renderAssignOptions(keyword) {
+  const container = document.querySelector("#assignOptions");
+  const lowerKw = keyword.toLowerCase().trim();
+  if (assignMode === "worker") {
+    // 按企业分组显示可用岗位
+    const groups = {};
+    data.demands.filter(d => remaining(d) > 0).forEach(d => {
+      const match = !lowerKw ||
+        d.company.toLowerCase().includes(lowerKw) ||
+        d.role.toLowerCase().includes(lowerKw) ||
+        d.location.toLowerCase().includes(lowerKw) ||
+        (d.salary || "").toLowerCase().includes(lowerKw) ||
+        (d.notes || "").toLowerCase().includes(lowerKw);
+      if (!match) return;
+      if (!groups[d.company]) groups[d.company] = [];
+      groups[d.company].push(d);
+    });
+    const companyNames = Object.keys(groups).sort();
+    if (!companyNames.length) {
+      container.innerHTML = '<p class="assign-empty">没有匹配的岗位</p>';
+      return;
+    }
+    container.innerHTML = companyNames.map(company => `
+      <div class="assign-group">
+        <div class="assign-group-title">${h(company)}</div>
+        ${groups[company].map(d => `
+          <div class="assign-item" onclick="doAssignWorker(${d.id})" title="点击分配">
+            <span class="assign-item-main">${h(d.role)}</span>
+            <span class="assign-item-meta">${h(d.location)}｜${h(d.salary)}｜缺${remaining(d)}人</span>
+            <span class="assign-item-badge">${h(d.type)}</span>
+          </div>
+        `).join('')}
+      </div>
+    `).join('');
+  } else {
+    // 求职者列表
+    const filtered = data.workers.filter(w => {
+      if (!lowerKw) return true;
+      const text = `${w.name} ${w.phone || ''} ${w.location} ${w.period} ${w.expectedRole || ''} ${w.tags.join(' ')}`.toLowerCase();
+      return text.includes(lowerKw);
+    });
+    if (!filtered.length) {
+      container.innerHTML = '<p class="assign-empty">没有匹配的求职者</p>';
+      return;
+    }
+    container.innerHTML = filtered.map(w => `
+      <div class="assign-item" onclick="doAssignDemand(${w.id})" title="点击分配">
+        <span class="assign-item-main">${h(w.name)} ${w.phone ? '📞' + h(w.phone) : ''}</span>
+        <span class="assign-item-meta">${h(w.location)}｜${h(w.period)}｜${w.score}分${w.expectedRole ? '｜期望' + h(w.expectedRole) : ''}</span>
+        <span class="assign-item-tags">${w.tags.slice(0, 3).map(t => h(t)).join(' · ')}</span>
+      </div>
+    `).join('');
+  }
+}
+
+function doAssignWorker(demandId) {
   const workerId = Number(document.querySelector("#assignWorkerId").value);
+  if (!workerId) return;
+  assignWorkerToDemand(workerId, demandId);
+}
+
+function doAssignDemand(workerId) {
   const demandId = Number(document.querySelector("#assignDemandId").value);
-  const selectedId = Number(document.querySelector("#assignSelect").value);
-  if (!selectedId) { alert("请先选择目标"); return; }
-  const finalWorkerId = workerId || selectedId;
-  const finalDemandId = demandId || selectedId;
-  assignWorkerToDemand(finalWorkerId, finalDemandId);
+  if (!demandId) return;
+  assignWorkerToDemand(workerId, demandId);
+}
+
+// 搜索输入实时过滤
+document.querySelector("#assignSearch")?.addEventListener("input", function() {
+  renderAssignOptions(this.value);
 });

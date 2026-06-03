@@ -497,23 +497,25 @@
     </form>
   </dialog>
 
-  <dialog id="assignModal">
+  <dialog id="assignModal" class="assign-modal-wide">
     <form method="dialog" class="modal-card">
       <header>
         <h2 id="assignModalTitle">分配岗位</h2>
         <button type="button" data-close-modal="assignModal" class="icon-btn" aria-label="关闭">×</button>
       </header>
-      <div class="form-grid" id="assignModalBody">
+      <div class="assign-body">
         <input type="hidden" id="assignWorkerId">
         <input type="hidden" id="assignDemandId">
-        <label id="assignLabel">选择目标
-          <select id="assignSelect"></select>
-        </label>
+        <div class="assign-search-wrap">
+          <input id="assignSearch" type="search" placeholder="输入关键字快速过滤企业/岗位..." autofocus>
+          <span class="assign-count" id="assignCount"></span>
+        </div>
+        <div class="assign-options" id="assignOptions">
+          <!-- 动态渲染 -->
+        </div>
       </div>
-      <p class="hint" id="assignModalInfo"></p>
       <footer>
         <button type="button" data-close-modal="assignModal" class="ghost">取消</button>
-        <button class="primary" id="assignConfirmBtn" value="default">确认分配</button>
       </footer>
     </form>
   </dialog>
