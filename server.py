@@ -1046,6 +1046,8 @@ def reset_account_password(conn, phone, new_password):
     )
 
 
+# 老板账号注册验证码（同一企业需向系统管理员申请）
+OWNER_REGISTER_CODE = "12345"
 ALLOWED_ROLES = {"owner", "sales", "dispatcher", "service"}
 _COMPANY_KEY_CHAR_RE = re.compile(r"[a-z0-9一-鿿_\-]")
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8MB 上传上限
@@ -1890,6 +1892,11 @@ class Handler(SimpleHTTPRequestHandler):
             if role not in ALLOWED_ROLES:
                 self.send_json({"ok": False, "error": "无效角色"}, status=400)
                 return
+            if role == "owner":
+                owner_code = body.get("ownerCode", "").strip()
+                if owner_code != OWNER_REGISTER_CODE:
+                    self.send_json({"ok": False, "error": f"老板验证码错误，请向系统管理员申请权限后再注册（提示：默认码 {OWNER_REGISTER_CODE}）"}, status=400)
+                    return
             token = secrets.token_urlsafe(32)
             with connect() as conn:
                 if not verify_sms_code(conn, phone, code):

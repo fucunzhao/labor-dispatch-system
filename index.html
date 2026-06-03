@@ -16,15 +16,15 @@
       </div>
     </div>
     <nav class="nav" aria-label="主导航">
-      <button class="nav-item active" data-view="dashboard">总览</button>
-      <button class="nav-item" data-view="pipeline">招聘流程</button>
-      <button class="nav-item" data-view="collector">模糊采集</button>
-      <button class="nav-item" data-view="calendar">全年用工日历</button>
-      <button class="nav-item" data-view="demands">企业需求</button>
-      <button class="nav-item" data-view="workers">求职者库</button>
-      <button class="nav-item" data-view="knowledge">私有知识库</button>
-      <button class="nav-item" data-view="account">账号管理</button>
-      <button class="nav-item" data-view="assistant">AI 知识库助手</button>
+      <button class="nav-item active" data-view="dashboard" data-role="all">总览</button>
+      <button class="nav-item" data-view="pipeline" data-role="owner,sales,dispatcher">招聘流程</button>
+      <button class="nav-item" data-view="collector" data-role="owner,sales">模糊采集</button>
+      <button class="nav-item" data-view="calendar" data-role="all">全年用工日历</button>
+      <button class="nav-item" data-view="demands" data-role="owner,sales">企业需求</button>
+      <button class="nav-item" data-view="workers" data-role="all">求职者库</button>
+      <button class="nav-item" data-view="knowledge" data-role="owner,sales,service">私有知识库</button>
+      <button class="nav-item" data-view="account" data-role="owner">账号管理</button>
+      <button class="nav-item" data-view="assistant" data-role="all">AI 知识库助手</button>
     </nav>
     <div class="side-note">
       <strong>今日重点</strong>
@@ -41,8 +41,8 @@
       <div class="top-actions">
         <span class="badge" id="accountBadge">未登录</span>
         <a class="ghost link-button" href="applicant.html" target="_blank">求职者自助登记</a>
-        <button class="ghost" id="resetDemo" data-write>恢复示例数据</button>
-        <button class="primary" data-open-modal="demandModal" data-write>新增用工需求</button>
+        <button class="ghost" id="resetDemo" data-write data-role="owner">恢复示例数据</button>
+        <button class="primary" data-open-modal="demandModal" data-write data-perm="demands.write">新增用工需求</button>
       </div>
     </header>
 
@@ -162,7 +162,7 @@
         </div>
         <div id="fuzzyResults" class="list"></div>
         <div class="public-actions">
-          <button type="button" class="primary" id="importFuzzy" data-write>确认导入企业需求</button>
+          <button type="button" class="primary" id="importFuzzy" data-write data-perm="collector.write">确认导入企业需求</button>
         </div>
       </section>
     </section>
@@ -194,7 +194,7 @@
     <section class="view" id="demands">
       <div class="toolbar split">
         <input id="demandSearch" type="search" placeholder="搜索企业、岗位、地点">
-        <button class="primary" data-open-modal="demandModal" data-write>新增用工需求</button>
+        <button class="primary" data-open-modal="demandModal" data-write data-perm="demands.write">新增用工需求</button>
       </div>
       <div class="table-wrap">
         <table>
@@ -219,7 +219,7 @@
     <section class="view" id="workers">
       <div class="toolbar split">
         <input id="workerSearch" type="search" placeholder="搜索姓名、标签、地区">
-        <button class="primary" data-open-modal="workerModal" data-write>新增求职者</button>
+        <button class="primary" data-open-modal="workerModal" data-write data-perm="workers.write">新增求职者</button>
       </div>
       <div class="worker-grid" id="workerGrid"></div>
     </section>
@@ -228,10 +228,10 @@
       <div class="toolbar split">
         <input id="knowledgeSearch" type="search" placeholder="搜索企业规则、岗位、求职者画像、标签">
         <div class="top-actions">
-          <button class="ghost" id="newKnowledge" data-write>新增知识</button>
-          <button class="ghost" id="batchEditKnowledge" data-write>批量修改</button>
-          <button class="ghost" id="batchDeleteKnowledge" data-write>批量删除</button>
-          <button class="ghost" id="rebuildKnowledge" data-write>重建知识库索引</button>
+          <button class="ghost" id="newKnowledge" data-write data-perm="knowledge.write">新增知识</button>
+          <button class="ghost" id="batchEditKnowledge" data-write data-perm="knowledge.write">批量修改</button>
+          <button class="ghost" id="batchDeleteKnowledge" data-write data-perm="knowledge.write">批量删除</button>
+          <button class="ghost" id="rebuildKnowledge" data-write data-perm="knowledge.write">重建知识库索引</button>
         </div>
       </div>
       <div class="metrics" id="knowledgeMetrics"></div>
@@ -272,7 +272,11 @@
               <label>设置密码<input name="password" type="password" required minlength="6" placeholder="至少6位"></label>
               <label>企业名称<input name="company" required placeholder="同一企业名称共享数据"></label>
               <label>联系人姓名<input name="name" placeholder="可留空，默认手机号"></label>
-              <label>账号角色<select name="role"><option value="owner">老板/管理员</option><option value="sales">业务员</option><option value="dispatcher">调度员</option><option value="service">客服人员</option></select></label>
+              <label>账号角色<select name="role" id="regRole"><option value="owner">老板/管理员</option><option value="sales" selected>业务员</option><option value="dispatcher">调度员</option><option value="service">客服人员</option></select></label>
+              <label id="ownerCodeField" style="display:none">老板验证码
+                <span style="font-size:12px;color:#868e96;display:block">需向系统管理员申请，员工注册请选择其他角色</span>
+                <input name="ownerCode" placeholder="输入管理员提供的验证码" maxlength="20">
+              </label>
             </div>
             <button class="primary" type="submit">注册并登录</button>
           </form>
