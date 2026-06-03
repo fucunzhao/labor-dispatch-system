@@ -208,6 +208,7 @@
               <th>薪资</th>
               <th>状态</th>
               <th>推荐</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody id="demandTable"></tbody>
@@ -493,6 +494,27 @@
         <button class="primary" value="default">确认重置</button>
       </footer>
       <div class="success-box" id="resetPwdMessage"></div>
+    </form>
+  </dialog>
+
+  <dialog id="assignModal">
+    <form method="dialog" class="modal-card">
+      <header>
+        <h2 id="assignModalTitle">分配岗位</h2>
+        <button type="button" data-close-modal="assignModal" class="icon-btn" aria-label="关闭">×</button>
+      </header>
+      <div class="form-grid" id="assignModalBody">
+        <input type="hidden" id="assignWorkerId">
+        <input type="hidden" id="assignDemandId">
+        <label id="assignLabel">选择目标
+          <select id="assignSelect"></select>
+        </label>
+      </div>
+      <p class="hint" id="assignModalInfo"></p>
+      <footer>
+        <button type="button" data-close-modal="assignModal" class="ghost">取消</button>
+        <button class="primary" id="assignConfirmBtn" value="default">确认分配</button>
+      </footer>
     </form>
   </dialog>
 

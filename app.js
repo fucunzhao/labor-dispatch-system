@@ -345,6 +345,7 @@ function renderDemandTable() {
         <td>${h(item.salary)}</td>
         <td>${remaining(item) === 0 ? tag("已满员") : tag("匹配中", "warn")}</td>
         <td>${matches.map(match => `${h(match.worker.name)} ${match.score}分`).join("<br>") || "暂无"}</td>
+        <td><button class="ghost" onclick="showAssignDemand(${item.id})" data-write style="font-size:12px">分配求职者</button></td>
       </tr>
     `;
   }).join("");
@@ -371,6 +372,9 @@ function renderWorkers() {
         <div class="item" style="margin-top:12px">
           <strong>推荐岗位</strong>
           <span class="item-meta">${best ? `${h(best.demand.company)} · ${h(best.demand.role)}（${best.score}分）` : "暂无合适岗位"}</span>
+        </div>
+        <div class="public-actions" style="margin-top:8px">
+          <button class="ghost" onclick="showAssignWorker(${worker.id})" data-write>分配岗位</button>
         </div>
       </article>
     `;
@@ -1216,4 +1220,45 @@ document.querySelector(".login-tabs")?.addEventListener("click", function(e) {
   // 显示/隐藏字段
   document.querySelector(".login-fields-phone").style.display = mode === "phone" ? "" : "none";
   document.querySelector(".login-fields-legacy").style.display = mode === "legacy" ? "" : "none";
+});
+
+// ── 分配岗位/求职者 弹窗 ──────────────────────────
+function showAssignWorker(workerId) {
+  const demands = data.demands.filter(d => remaining(d) > 0);
+  const sel = document.querySelector("#assignSelect");
+  sel.innerHTML = demands.map(d =>
+    `<option value="${d.id}">${h(d.company)} — ${h(d.role)}（缺${remaining(d)}人）${d.salary ? '｜' + h(d.salary) : ''}</option>`
+  ).join("") || '<option value="">暂无可用岗位</option>';
+  document.querySelector("#assignWorkerId").value = workerId;
+  document.querySelector("#assignDemandId").value = "";
+  document.querySelector("#assignModalTitle").textContent = "分配岗位 — 为该求职者选择岗位";
+  const worker = data.workers.find(w => w.id === workerId);
+  document.querySelector("#assignModalInfo").textContent = worker ? `求职者：${worker.name} ${worker.phone || ''}` : "";
+  document.querySelector("#assignLabel").style.display = "";
+  document.querySelector("#assignModal").showModal();
+}
+
+function showAssignDemand(demandId) {
+  const workers = data.workers;
+  const sel = document.querySelector("#assignSelect");
+  sel.innerHTML = workers.map(w =>
+    `<option value="${w.id}">${h(w.name)}${w.phone ? ' 📞' + h(w.phone) : ''}｜${h(w.location)}｜${h(w.period)}｜${w.score}分</option>`
+  ).join("") || '<option value="">暂无求职者</option>';
+  document.querySelector("#assignDemandId").value = demandId;
+  document.querySelector("#assignWorkerId").value = "";
+  document.querySelector("#assignModalTitle").textContent = "分配求职者 — 选择该岗位的求职者";
+  const demand = data.demands.find(d => d.id === demandId);
+  document.querySelector("#assignModalInfo").textContent = demand ? `岗位：${demand.company} ${demand.role}（缺${remaining(demand)}人）` : "";
+  document.querySelector("#assignLabel").style.display = "";
+  document.querySelector("#assignModal").showModal();
+}
+
+document.querySelector("#assignConfirmBtn")?.addEventListener("click", function(e) {
+  const workerId = Number(document.querySelector("#assignWorkerId").value);
+  const demandId = Number(document.querySelector("#assignDemandId").value);
+  const selectedId = Number(document.querySelector("#assignSelect").value);
+  if (!selectedId) { alert("请先选择目标"); return; }
+  const finalWorkerId = workerId || selectedId;
+  const finalDemandId = demandId || selectedId;
+  assignWorkerToDemand(finalWorkerId, finalDemandId);
 });
