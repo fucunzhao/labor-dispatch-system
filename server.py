@@ -1570,7 +1570,7 @@ def _do_insert_worker(conn, body, account_id, company_key):
             int(body.get("score") or 70),
             str(tags),
             body.get("note", "").strip(),
-            body.get("source", "业务员录入").strip(),
+            body.get("source", "业务运营专员录入").strip(),
             body.get("registrationDate", body.get("registration_date", "")),
             body.get("interviewDate", body.get("interview_date", "")),
             body.get("desiredStartDate", body.get("desired_start_date", "")),
@@ -2042,7 +2042,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/pipeline/assign":
             if not check_role(account, "owner", "sales"):
-                self.send_json({"ok": False, "error": "仅老板/业务员可分配岗位"}, status=403)
+                self.send_json({"ok": False, "error": "仅老板/业务运营专员可分配岗位"}, status=403)
                 return
             body = self.read_json()
             demand_id = int(body.get("demand_id") or 0)
@@ -2063,7 +2063,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/pipeline/status":
             if not check_role(account, "owner", "dispatcher"):
-                self.send_json({"ok": False, "error": "仅老板/调度员可推进招聘流程"}, status=403)
+                self.send_json({"ok": False, "error": "仅老板/招聘专员可推进招聘流程"}, status=403)
                 return
             body = self.read_json()
             pipeline_id = int(body.get("pipeline_id") or 0)
@@ -2150,7 +2150,7 @@ class Handler(SimpleHTTPRequestHandler):
             body = self.read_json()
             target_key = normalize_company_key(body.get("companyKey", "") or body.get("agency", ""))
             if not target_key:
-                self.send_json({"ok": False, "error": "缺少中介公司标识，请通过业务员发送的链接登记"}, status=400)
+                self.send_json({"ok": False, "error": "缺少中介公司标识，请通过业务运营专员发送的链接登记"}, status=400)
                 return
             with connect() as conn:
                 agent_row = conn.execute(
@@ -2176,7 +2176,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/demands":
             if not check_role(account, "owner", "sales"):
-                self.send_json({"ok": False, "error": "仅老板/业务员可管理企业需求"}, status=403)
+                self.send_json({"ok": False, "error": "仅老板/业务运营专员可管理企业需求"}, status=403)
                 return
             body = self.read_json()
             with connect() as conn:
@@ -2246,7 +2246,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/workers":
             if not check_role(account, "owner", "sales", "service"):
-                self.send_json({"ok": False, "error": "仅老板/业务员/客服可管理求职者"}, status=403)
+                self.send_json({"ok": False, "error": "仅老板/业务运营专员/客服可管理求职者"}, status=403)
                 return
             body = self.read_json()
             with connect() as conn:
@@ -2463,7 +2463,7 @@ def answer_question(question, payload):
         for item in knowledge:
             categories[item["category"]] = categories.get(item["category"], 0) + 1
         detail = "、".join(f"{name}{count}条" for name, count in categories.items())
-        return f"当前私有知识库共有 {len(knowledge)} 条知识，包含：{detail or '暂无分类'}。知识来源包括企业需求维护、求职者自助登记和业务员录入。"
+        return f"当前私有知识库共有 {len(knowledge)} 条知识，包含：{detail or '暂无分类'}。知识来源包括企业需求维护、求职者自助登记和业务运营专员录入。"
     if "周结" in q:
         items = [item for item in demands if "周结" in item["notes"]]
         return format_demand_answer("支持周结的岗位", items, workers)
@@ -2486,7 +2486,7 @@ def answer_question(question, payload):
         return (
             f"招聘文案草稿：\n{target['company']}招聘{target['role']}，{target['type']}，需求{target['headcount']}人，"
             f"目前剩余{remaining(target)}个名额。工作地点{target['location']}，薪资{target['salary']}，时间{target['start']}至{target['end'] or '长期'}。"
-            f"{target['notes']} 有意向的求职者请联系业务员报名，系统会优先安排匹配度高、可按时到岗的人选。"
+            f"{target['notes']} 有意向的求职者请联系业务运营专员报名，系统会优先安排匹配度高、可按时到岗的人选。"
         )
     for worker in workers:
         if worker["name"].lower() in q:

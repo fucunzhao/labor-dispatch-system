@@ -193,7 +193,7 @@ function renderPermissions() {
 renderAccount();
 
 function renderAccount() {
-  const roleNames = { owner: "老板/管理员", sales: "业务员", dispatcher: "调度员", service: "客服人员" };
+  const roleNames = { owner: "老板/管理员", sales: "业务运营专员", dispatcher: "招聘专员", service: "客服人员" };
   const label = account ? `${account.company || account.name}｜${roleNames[account.role] || account.role}` : "未登录";
   els.accountBadge.textContent = label;
   els.accountStatus.textContent = account ? `当前登录：${label}` : "当前未登录";
@@ -674,7 +674,7 @@ function formDataToWorker(formData) {
     score: Number(formData.get("score")),
     tags: formData.get("tags").split(/[,，]/).map(item => item.trim()).filter(Boolean),
     note: formData.get("note")?.trim() || "",
-    source: "业务员录入"
+    source: "业务运营专员录入"
   };
 }
 
