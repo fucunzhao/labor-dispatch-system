@@ -752,3 +752,151 @@ dialog::backdrop {
   color: var(--primary);
   text-decoration: underline;
 }
+
+/* ── 招聘流程 / Pipeline ─────────────────────────── */
+.pipeline-list table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.pipeline-list th {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 2px solid var(--line);
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pipeline-list td {
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+.pipeline-list tr:hover {
+  background: var(--surface-2);
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+}
+.status-assigned { background: #6c757d; }
+.status-contacted { background: #17a2b8; }
+.status-interviewed { background: #ffc107; color: #333; }
+.status-onboarded { background: #28a745; }
+.status-stationed { background: #007bff; }
+.status-departed { background: #dc3545; }
+
+.pipeline-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.pipeline-actions .btn {
+  padding: 3px 10px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pipeline-actions .btn:hover {
+  background: var(--surface-2);
+}
+.pipeline-actions .btn-primary {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+.pipeline-actions .btn-primary:hover {
+  background: var(--primary-2);
+}
+
+/* Kanban */
+.pipeline-kanban {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 8px 0;
+  min-height: 60vh;
+}
+.kanban-col {
+  flex: 1;
+  min-width: 200px;
+  max-width: 280px;
+  background: var(--surface-2);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 180px);
+}
+.kanban-header {
+  padding: 8px 12px;
+  font-weight: 600;
+  font-size: 14px;
+  border-radius: 8px 8px 0 0;
+  color: #fff;
+  flex-shrink: 0;
+}
+.kanban-body {
+  padding: 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+.kanban-card {
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  font-size: 13px;
+  cursor: default;
+}
+.kanban-card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,.12);
+}
+.kanban-card .worker-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+.kanban-card .demand-info {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 4px 0;
+}
+.kanban-card .kanban-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.kanban-card .kanban-actions .btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface);
+}
+.kanban-card .kanban-actions .btn:hover {
+  background: var(--surface-2);
+}
+
+.toggle-view {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  margin-left: 12px;
+}
+.toggle-view input[type="checkbox"] {
+  width: auto;
+  cursor: pointer;
+}

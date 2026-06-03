@@ -1766,6 +1766,78 @@ class Handler(SimpleHTTPRequestHandler):
                     pipeline.append(item)
                 self.send_json({"ok": True, "pipeline": pipeline})
             return
+        if parsed.path == "/api/pipeline/list":
+            if not account:
+                self.send_json({"ok": False, "error": "未登录"}, status=401)
+                return
+            qs = {}
+            if "?" in self.path:
+                for part in self.path.split("?", 1)[1].split("&"):
+                    if "=" in part:
+                        k, v = part.split("=", 1)
+                        qs[k] = v
+            status_filter = qs.get("status", "")
+            with connect() as conn:
+                base_sql = """
+                    SELECT p.*, d.company AS demand_company, d.role AS demand_role, d.salary AS demand_salary,
+                           d.location AS demand_location, d.type AS demand_type, d.headcount, d.signed AS demand_signed,
+                           d.start_date, d.end_date, d.notes AS demand_notes,
+                           w.name AS worker_name, w.phone AS worker_phone, w.gender AS worker_gender,
+                           w.age AS worker_age, w.location AS worker_location, w.available, w.score AS worker_score,
+                           w.note AS worker_note
+                    FROM recruitment_pipeline p
+                    LEFT JOIN demands d ON p.demand_id = d.id
+                    LEFT JOIN workers w ON p.worker_id = w.id
+                    WHERE p.company_key = ?
+                """
+                params_list = [account["companyKey"]]
+                if status_filter:
+                    base_sql += " AND p.status = ?"
+                    params_list.append(status_filter)
+                base_sql += " ORDER BY p.updated_at DESC"
+                rows = conn.execute(base_sql, params_list).fetchall()
+            pipelines = []
+            for row in rows:
+                r = dict(row)
+                pipelines.append({
+                    "id": r["id"],
+                    "demand_id": r["demand_id"],
+                    "worker_id": r["worker_id"],
+                    "company_key": r["company_key"],
+                    "status": r["status"],
+                    "assigned_by": r["assigned_by"],
+                    "contacted_at": r["contacted_at"] or "",
+                    "interviewed_at": r["interviewed_at"] or "",
+                    "onboarded_at": r["onboarded_at"] or "",
+                    "stationed_at": r["stationed_at"] or "",
+                    "departed_at": r["departed_at"] or "",
+                    "notes": r["notes"] or "",
+                    "interview_invite_sent": r["interview_invite_sent"],
+                    "worker_accepted": r["worker_accepted"],
+                    "phone_revealed": r["phone_revealed"],
+                    "created_at": r["created_at"],
+                    "updated_at": r["updated_at"],
+                    "demand_company": r.get("demand_company", ""),
+                    "demand_role": r.get("demand_role", ""),
+                    "demand_salary": r.get("demand_salary", ""),
+                    "demand_location": r.get("demand_location", ""),
+                    "demand_type": r.get("demand_type", ""),
+                    "headcount": r.get("headcount", 0),
+                    "demand_signed": r.get("demand_signed", 0),
+                    "start_date": r.get("start_date", ""),
+                    "end_date": r.get("end_date", ""),
+                    "demand_notes": r.get("demand_notes", ""),
+                    "worker_name": r.get("worker_name", ""),
+                    "worker_phone": r.get("worker_phone", ""),
+                    "worker_gender": r.get("worker_gender", ""),
+                    "worker_age": r.get("worker_age", ""),
+                    "worker_location": r.get("worker_location", ""),
+                    "worker_available": r.get("available", ""),
+                    "worker_score": r.get("worker_score", 0),
+                    "worker_note": r.get("worker_note", ""),
+                })
+            self.send_json({"ok": True, "pipelines": pipelines})
+            return
         if parsed.path not in self._STATIC_ALLOWLIST:
             self.send_response(404)
             self.send_header("Content-Type", "text/plain; charset=utf-8")

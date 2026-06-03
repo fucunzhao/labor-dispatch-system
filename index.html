@@ -17,6 +17,7 @@
     </div>
     <nav class="nav" aria-label="主导航">
       <button class="nav-item active" data-view="dashboard">总览</button>
+      <button class="nav-item" data-view="pipeline">招聘流程</button>
       <button class="nav-item" data-view="collector">模糊采集</button>
       <button class="nav-item" data-view="calendar">全年用工日历</button>
       <button class="nav-item" data-view="demands">企业需求</button>
@@ -62,6 +63,55 @@
           </div>
           <div id="taskList" class="list"></div>
         </section>
+      </div>
+    </section>
+
+    <section class="view" id="pipeline">
+      <div class="toolbar split">
+        <div class="top-actions">
+          <label>状态筛选
+            <select id="pipelineStatusFilter" onchange="loadPipelines()">
+              <option value="">全部状态</option>
+              <option value="assigned">已分配</option>
+              <option value="contacted">已联系</option>
+              <option value="interviewed">已面试</option>
+              <option value="onboarded">已到岗</option>
+              <option value="stationed">在岗</option>
+              <option value="departed">已离职</option>
+            </select>
+          </label>
+          <label class="toggle-view">
+            <input type="checkbox" id="toggleKanban" onchange="togglePipelineView()">
+            <span>看板模式</span>
+          </label>
+        </div>
+      </div>
+      <div id="pipelineList" class="pipeline-list"></div>
+      <div id="pipelineKanban" class="pipeline-kanban" style="display:none">
+        <div class="kanban-col" data-status="assigned">
+          <div class="kanban-header" style="background:#6c757d">📋 已分配</div>
+          <div class="kanban-body" id="kanban-assigned"></div>
+        </div>
+        <div class="kanban-col" data-status="contacted">
+          <div class="kanban-header" style="background:#17a2b8">📞 已联系</div>
+          <div class="kanban-body" id="kanban-contacted"></div>
+        </div>
+        <div class="kanban-col" data-status="interviewed">
+          <div class="kanban-header" style="background:#ffc107">🤝 已面试</div>
+          <div class="kanban-body" id="kanban-interviewed"></div>
+        </div>
+        <div class="kanban-col" data-status="onboarded">
+          <div class="kanban-header" style="background:#28a745">🚶 已到岗</div>
+          <div class="kanban-body" id="kanban-onboarded"></div>
+        </div>
+        <div class="kanban-col" data-status="stationed">
+          <div class="kanban-header" style="background:#007bff">💼 在岗</div>
+          <div class="kanban-body" id="kanban-stationed"></div>
+        </div>
+        <div class="kanban-col" data-status="departed">
+          <div class="kanban-header" style="background:#dc3545">👋 已离职</div>
+          <div class="kanban-body" id="kanban-departed"></div>
+        </div>
       </div>
     </section>
 

@@ -1047,5 +1047,160 @@ els.knowledgeBatchForm.addEventListener("submit", async event => {
 loadData().catch(error => {
   els.sideSummary.textContent = "后台服务未连接，请先启动 server.py。";
   els.metrics.innerHTML = `<article class="metric"><span>系统状态</span><strong>未连接</strong></article>`;
-  els.chatLog.innerHTML = `<div class="bubble">后台服务未启动或接口异常：${escapeHtml(error.message)}</div>`;
+});
+
+// ── 招聘流程 / Pipeline ────────────────────────────
+const STATUS_NAMES = {
+  assigned: "已分配", contacted: "已联系", interviewed: "已面试",
+  onboarded: "已到岗", stationed: "在岗", departed: "已离职"
+};
+const STATUS_TRANSITIONS = {
+  assigned: ["contacted"],
+  contacted: ["interviewed"],
+  interviewed: ["onboarded"],
+  onboarded: ["stationed"],
+  stationed: ["departed"],
+  departed: []
+};
+const STATUS_FLOW = ["assigned", "contacted", "interviewed", "onboarded", "stationed", "departed"];
+
+let pipelineData = [];
+let isKanban = false;
+
+async function loadPipelines() {
+  const statusFilter = document.querySelector("#pipelineStatusFilter")?.value || "";
+  try {
+    const url = `/api/pipeline/list?company_key=${encodeURIComponent(account?.companyKey || "")}` +
+      (statusFilter ? `&status=${statusFilter}` : "");
+    const resp = await api(url);
+    if (resp.ok) {
+      pipelineData = resp.pipelines || [];
+      renderPipeline();
+    }
+  } catch (e) {
+    console.error("加载pipeline失败:", e);
+  }
+}
+
+function renderPipeline() {
+  if (isKanban) {
+    renderKanban();
+  } else {
+    renderPipelineTable();
+  }
+}
+
+function renderPipelineTable() {
+  const div = document.querySelector("#pipelineList");
+  if (!div) return;
+  if (!pipelineData.length) {
+    div.innerHTML = '<p style="padding:20px;color:var(--muted);text-align:center">暂无招聘流程记录。在求职者库或企业需求页面中分配岗位后，记录将出现在这里。</p>';
+    return;
+  }
+  let html = `<table class="data-table"><thead><tr>
+    <th>求职者</th><th>企业/岗位</th><th>分配时间</th><th>当前状态</th><th>更新时间</th><th>操作</th>
+  </tr></thead><tbody>`;
+  pipelineData.forEach(p => {
+    const statusLabel = STATUS_NAMES[p.status] || p.status;
+    const nextStatuses = STATUS_TRANSITIONS[p.status] || [];
+    const canGoBack = getPrevStatus(p.status);
+    html += `<tr>
+      <td><strong>${escapeHtml(p.worker_name)}</strong><br><small style="color:var(--muted)">${escapeHtml(p.worker_phone || '')}</small></td>
+      <td><strong>${escapeHtml(p.demand_company)}</strong> — ${escapeHtml(p.demand_role)}<br><small style="color:var(--muted)">${escapeHtml(p.demand_salary || '')}</small></td>
+      <td><small>${p.created_at?.slice(0,16) || '-'}</small></td>
+      <td><span class="status-badge status-${p.status}">${statusLabel}</span></td>
+      <td><small>${p.updated_at?.slice(0,16) || '-'}</small></td>
+      <td class="pipeline-actions">
+        ${nextStatuses.map(s => `<button class="btn btn-primary" onclick="updatePipelineStatus(${p.id},'${s}')">→ ${STATUS_NAMES[s]}</button>`).join('')}
+        ${canGoBack ? `<button class="btn" onclick="updatePipelineStatus(${p.id},'${canGoBack}')">← 退回</button>` : ''}
+        ${p.status === 'departed' ? '' : `<button class="btn" onclick="updatePipelineStatus(${p.id},'departed')" style="color:var(--danger)">× 离职</button>`}
+      </td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  div.innerHTML = html;
+}
+
+function getPrevStatus(current) {
+  const idx = STATUS_FLOW.indexOf(current);
+  if (idx <= 0) return null;
+  return STATUS_FLOW[idx - 1];
+}
+
+function renderKanban() {
+  document.querySelector("#pipelineList").style.display = "none";
+  document.querySelector("#pipelineKanban").style.display = "flex";
+  STATUS_FLOW.forEach(status => {
+    const container = document.querySelector(`#kanban-${status}`);
+    if (!container) return;
+    const items = pipelineData.filter(p => p.status === status);
+    if (!items.length) {
+      container.innerHTML = '<p style="color:var(--muted);font-size:12px;text-align:center;padding:10px">暂无</p>';
+      return;
+    }
+    container.innerHTML = items.map(p => {
+      const nextStatuses = STATUS_TRANSITIONS[p.status] || [];
+      const canGoBack = getPrevStatus(p.status);
+      return `<div class="kanban-card">
+        <div class="worker-name">${escapeHtml(p.worker_name)}</div>
+        <div class="demand-info">
+          ${escapeHtml(p.demand_company)} — ${escapeHtml(p.demand_role)}<br>
+          ${escapeHtml(p.demand_salary || '')}<br>
+          📞 ${escapeHtml(p.worker_phone || '')}
+        </div>
+        <div class="kanban-actions">
+          ${nextStatuses.map(s => `<button class="btn btn-primary" onclick="updatePipelineStatus(${p.id},'${s}')">→ ${STATUS_NAMES[s]}</button>`).join('')}
+          ${canGoBack ? `<button class="btn" onclick="updatePipelineStatus(${p.id},'${canGoBack}')">← 退回</button>` : ''}
+          ${p.status === 'departed' ? '' : `<button class="btn" onclick="updatePipelineStatus(${p.id},'departed')" style="color:var(--danger)">× 离职</button>`}
+        </div>
+      </div>`;
+    }).join('');
+  });
+}
+
+function togglePipelineView() {
+  isKanban = document.querySelector("#toggleKanban")?.checked || false;
+  renderPipeline();
+}
+
+async function updatePipelineStatus(pipelineId, newStatus) {
+  try {
+    const resp = await api("/api/pipeline/status", {
+      method: "POST",
+      body: JSON.stringify({ pipeline_id: pipelineId, status: newStatus })
+    });
+    if (resp.ok) {
+      loadPipelines();
+    } else {
+      alert(resp.error || "更新失败");
+    }
+  } catch (e) {
+    alert("更新失败: " + e.message);
+  }
+}
+
+async function assignWorkerToDemand(workerId, demandId) {
+  try {
+    const resp = await api("/api/pipeline/assign", {
+      method: "POST",
+      body: JSON.stringify({ worker_id: workerId, demand_id: demandId })
+    });
+    if (resp.ok) {
+      alert("分配成功");
+      loadPipelines();
+      loadData();
+    } else {
+      alert(resp.error || "分配失败");
+    }
+  } catch (e) {
+    alert("分配失败: " + e.message);
+  }
+}
+
+// Listen for pipeline tab navigation
+document.addEventListener("click", function(e) {
+  const navItem = e.target.closest(".nav-item[data-view='pipeline']");
+  if (navItem) {
+    loadPipelines();
+  }
 });
