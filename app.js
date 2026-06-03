@@ -1204,3 +1204,16 @@ document.addEventListener("click", function(e) {
     loadPipelines();
   }
 });
+
+// ── 登录模式切换 ────────────────────────────────
+document.querySelector(".login-tabs")?.addEventListener("click", function(e) {
+  const tab = e.target.closest(".login-tab");
+  if (!tab) return;
+  // 切换高亮
+  this.querySelectorAll(".login-tab").forEach(t => t.classList.remove("active"));
+  tab.classList.add("active");
+  const mode = tab.dataset.loginMode;
+  // 显示/隐藏字段
+  document.querySelector(".login-fields-phone").style.display = mode === "phone" ? "" : "none";
+  document.querySelector(".login-fields-legacy").style.display = mode === "legacy" ? "" : "none";
+});

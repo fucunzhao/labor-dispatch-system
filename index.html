@@ -282,7 +282,17 @@
             <span id="accountStatus">当前未登录</span>
           </div>
           <form class="public-form" id="loginForm">
-            <label>手机号<input name="phone" type="tel" placeholder="手机号" pattern="1\d{10}"></label>
+            <div class="login-tabs">
+              <button type="button" class="login-tab active" data-login-mode="phone">手机号登录</button>
+              <button type="button" class="login-tab" data-login-mode="legacy">账号+企业登录</button>
+            </div>
+            <div class="login-fields-phone">
+              <label>手机号<input name="phone" type="tel" placeholder="手机号" pattern="1\d{10}"></label>
+            </div>
+            <div class="login-fields-legacy" style="display:none">
+              <label>账号名称<input name="name" placeholder="注册时的账号名"></label>
+              <label>企业名称<input name="company" placeholder="注册时的企业名称"></label>
+            </div>
             <label>密码<input name="password" type="password" required></label>
             <div class="public-actions">
               <button class="ghost" type="button" id="logoutAccount">退出登录</button>
