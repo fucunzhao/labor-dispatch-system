@@ -18,9 +18,11 @@ from routes_accounts import (
 )
 from routes_business import (
     handle_get_data, handle_get_pipeline, handle_get_pipeline_list,
+    handle_get_pipeline_events,
     handle_post_demands, handle_post_workers,
     handle_post_fuzzy_parse, handle_post_fuzzy_import,
     handle_post_pipeline_assign, handle_post_pipeline_status,
+    handle_post_pipeline_note,
     handle_post_knowledge_save, handle_post_knowledge_delete,
     handle_post_knowledge_batch_delete, handle_post_knowledge_batch_update,
     handle_post_knowledge_rebuild, handle_chat, handle_reset,
@@ -45,6 +47,8 @@ class Handler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         account = get_account_from_headers(self.headers)
         path = parsed.path
+        from urllib.parse import parse_qs
+        query_params = parse_qs(parsed.query)
 
         if path == "/api/data":
             handle_get_data(self, account)
@@ -54,6 +58,8 @@ class Handler(SimpleHTTPRequestHandler):
             handle_get_pipeline(self, account)
         elif path == "/api/pipeline/list":
             handle_get_pipeline_list(self, account)
+        elif path == "/api/pipeline/events":
+            handle_get_pipeline_events(self, account, query_params)
         elif path not in self._STATIC_ALLOWLIST:
             self.send_response(404)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -95,6 +101,8 @@ class Handler(SimpleHTTPRequestHandler):
             handle_post_pipeline_assign(self, account, self.read_json())
         elif path == "/api/pipeline/status":
             handle_post_pipeline_status(self, account, self.read_json())
+        elif path == "/api/pipeline/note":
+            handle_post_pipeline_note(self, account, self.read_json())
         elif path == "/api/knowledge/save":
             handle_post_knowledge_save(self, account, self.read_json())
         elif path == "/api/knowledge/delete":

@@ -74,7 +74,7 @@ def ensure_knowledge_columns(conn):
     })
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def init_db():
@@ -189,6 +189,19 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_accounts_phone ON accounts(phone);
             CREATE INDEX IF NOT EXISTS idx_accounts_company ON accounts(company_key);
             CREATE INDEX IF NOT EXISTS idx_knowledge_company ON knowledge_entries(company_key);
+            CREATE TABLE IF NOT EXISTS pipeline_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pipeline_id INTEGER NOT NULL,
+                company_key TEXT NOT NULL DEFAULT '',
+                operator_id INTEGER DEFAULT 0,
+                operator_name TEXT DEFAULT '',
+                event_type TEXT NOT NULL DEFAULT 'status_change',
+                from_status TEXT DEFAULT '',
+                to_status TEXT DEFAULT '',
+                content TEXT DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_pipeline_events_pipeline ON pipeline_events(pipeline_id);
             """
         )
         ensure_table_columns(conn, "demands", {"account_id": "INTEGER DEFAULT 0"})
@@ -203,5 +216,18 @@ def init_db():
         ensure_worker_columns(conn)
         ensure_demand_columns(conn)
         ensure_knowledge_columns(conn)
+        # 迁移：给 pipeline 加全局活跃唯一索引（同一求职者不能同时存在两条活跃流程）
+        # SQLite 不支持 ALTER TABLE ADD UNIQUE，只能创建唯一索引来模拟
+        existing_indexes = {row[1] for row in conn.execute("PRAGMA index_list(recruitment_pipeline)")}
+        if "idx_pipeline_worker_active_unique" not in existing_indexes:
+            # 清理已存在的重复活跃记录（保留最新一条）
+            conn.execute("""
+                DELETE FROM recruitment_pipeline
+                WHERE id NOT IN (
+                    SELECT MAX(id) FROM recruitment_pipeline
+                    WHERE status NOT IN ('departed')
+                    GROUP BY worker_id, company_key
+                ) AND status NOT IN ('departed')
+            """)
         # 迁移版本号
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

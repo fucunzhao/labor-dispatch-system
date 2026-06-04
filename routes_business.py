@@ -189,9 +189,36 @@ def handle_post_pipeline_assign(handler, account, body):
         handler.send_json({"ok": False, "error": "缺少需求ID或求职者ID"}, status=400)
         return
     with connect() as conn:
-        conn.execute("""INSERT OR IGNORE INTO recruitment_pipeline (demand_id, worker_id, company_key, status, assigned_by, created_at, updated_at) VALUES (?, ?, ?, 'assigned', ?, datetime('now'), datetime('now'))""",
-                     (demand_id, worker_id, account["companyKey"], account["id"]))
-        conn.execute("UPDATE demands SET signed = signed + 1 WHERE id = ? AND company_key = ?", (demand_id, account["companyKey"]))
+        # B方案：全局唯一活跃检查 —— 同一求职者不能同时有两条活跃流程
+        active = conn.execute(
+            """SELECT rp.id, d.company, d.role FROM recruitment_pipeline rp
+               JOIN demands d ON d.id = rp.demand_id
+               WHERE rp.worker_id = ? AND rp.company_key = ? AND rp.status NOT IN ('departed')""",
+            (worker_id, account["companyKey"])
+        ).fetchone()
+        if active:
+            handler.send_json({"ok": False, "error": f"该求职者已有活跃流程（{active['company']} · {active['role']}），请先结束当前流程再重新分配"}, status=409)
+            return
+        # 插入新流程记录
+        cur = conn.execute(
+            """INSERT INTO recruitment_pipeline (demand_id, worker_id, company_key, status, assigned_by, created_at, updated_at)
+               VALUES (?, ?, ?, 'assigned', ?, datetime('now'), datetime('now'))""",
+            (demand_id, worker_id, account["companyKey"], account["id"])
+        )
+        pipeline_id = cur.lastrowid
+        conn.execute(
+            "UPDATE demands SET signed = signed + 1 WHERE id = ? AND company_key = ?",
+            (demand_id, account["companyKey"])
+        )
+        # C方案：自动写入分配事件
+        worker_row = conn.execute("SELECT name FROM workers WHERE id = ?", (worker_id,)).fetchone()
+        demand_row = conn.execute("SELECT company, role FROM demands WHERE id = ?", (demand_id,)).fetchone()
+        content = f"分配至【{demand_row['company']} · {demand_row['role']}】"
+        conn.execute(
+            """INSERT INTO pipeline_events (pipeline_id, company_key, operator_id, operator_name, event_type, from_status, to_status, content)
+               VALUES (?, ?, ?, ?, 'status_change', '', 'assigned', ?)""",
+            (pipeline_id, account["companyKey"], account["id"], account.get("name", ""), content)
+        )
     handler.send_json({"ok": True})
 
 
@@ -201,6 +228,7 @@ def handle_post_pipeline_status(handler, account, body):
         return
     pipeline_id = int(body.get("pipeline_id") or 0)
     new_status = body.get("status", "")
+    note = body.get("note", "").strip()  # C方案：支持手动备注
     valid_statuses = {"assigned", "contacted", "interviewed", "onboarded", "stationed", "departed"}
     if not pipeline_id or new_status not in valid_statuses:
         handler.send_json({"ok": False, "error": "参数无效"}, status=400)
@@ -208,11 +236,72 @@ def handle_post_pipeline_status(handler, account, body):
     col_map = {"contacted": "contacted_at", "interviewed": "interviewed_at", "onboarded": "onboarded_at", "stationed": "stationed_at", "departed": "departed_at"}
     if new_status in col_map:
         with connect() as conn:
-            conn.execute(f"UPDATE recruitment_pipeline SET status = ?, {col_map[new_status]} = datetime('now'), updated_at = datetime('now') WHERE id = ? AND company_key = ?",
-                         (new_status, pipeline_id, account["companyKey"]))
+            row = conn.execute(
+                "SELECT status FROM recruitment_pipeline WHERE id = ? AND company_key = ?",
+                (pipeline_id, account["companyKey"])
+            ).fetchone()
+            if not row:
+                handler.send_json({"ok": False, "error": "流程不存在"}, status=404)
+                return
+            old_status = row["status"]
+            conn.execute(
+                f"UPDATE recruitment_pipeline SET status = ?, {col_map[new_status]} = datetime('now'), updated_at = datetime('now') WHERE id = ? AND company_key = ?",
+                (new_status, pipeline_id, account["companyKey"])
+            )
+            # C方案：自动写入状态变更事件
+            status_label = {"assigned": "已分配", "contacted": "已联系", "interviewed": "已面试", "onboarded": "已入职", "stationed": "已上岗", "departed": "已离职"}
+            content = f"状态从【{status_label.get(old_status, old_status)}】推进到【{status_label.get(new_status, new_status)}】"
+            if note:
+                content += f"。备注：{note}"
+            conn.execute(
+                """INSERT INTO pipeline_events (pipeline_id, company_key, operator_id, operator_name, event_type, from_status, to_status, content)
+                   VALUES (?, ?, ?, ?, 'status_change', ?, ?, ?)""",
+                (pipeline_id, account["companyKey"], account["id"], account.get("name", ""), old_status, new_status, content)
+            )
         handler.send_json({"ok": True})
     else:
         handler.send_json({"ok": False, "error": "无效状态"}, status=400)
+
+
+def handle_post_pipeline_note(handler, account, body):
+    """C方案：手动添加备注到服务记录"""
+    if not check_role(account, "owner", "dispatcher", "sales"):
+        handler.send_json({"ok": False, "error": "无操作权限"}, status=403)
+        return
+    pipeline_id = int(body.get("pipeline_id") or 0)
+    note = body.get("note", "").strip()
+    if not pipeline_id or not note:
+        handler.send_json({"ok": False, "error": "缺少流程ID或备注内容"}, status=400)
+        return
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT id FROM recruitment_pipeline WHERE id = ? AND company_key = ?",
+            (pipeline_id, account["companyKey"])
+        ).fetchone()
+        if not row:
+            handler.send_json({"ok": False, "error": "流程不存在"}, status=404)
+            return
+        conn.execute(
+            """INSERT INTO pipeline_events (pipeline_id, company_key, operator_id, operator_name, event_type, from_status, to_status, content)
+               VALUES (?, ?, ?, ?, 'note', '', '', ?)""",
+            (pipeline_id, account["companyKey"], account["id"], account.get("name", ""), note)
+        )
+    handler.send_json({"ok": True})
+
+
+def handle_get_pipeline_events(handler, account, params):
+    """获取某流程的完整服务记录历史"""
+    pipeline_id = int(params.get("pipeline_id", [0])[0])
+    if not pipeline_id:
+        handler.send_json({"ok": False, "error": "缺少pipeline_id"}, status=400)
+        return
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT * FROM pipeline_events WHERE pipeline_id = ? AND company_key = ? ORDER BY created_at ASC""",
+            (pipeline_id, account["companyKey"])
+        ).fetchall()
+    events = [dict(r) for r in rows]
+    handler.send_json({"ok": True, "events": events})
 
 
 def handle_post_knowledge_save(handler, account, body):
