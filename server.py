@@ -172,6 +172,11 @@ class Handler(SimpleHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length)
         form = {}
+        # 从原始 multipart 数据中提取文件名（cgi.parse_multipart 不返回文件名）
+        raw_head = raw[:4096].decode("utf-8", errors="replace")
+        m = __import__("re").search(r'filename="([^"]*)"', raw_head)
+        if m:
+            form["filename"] = m.group(1)
         if hasattr(cgi, "parse_multipart"):
             parts = cgi.parse_multipart(BytesIO(raw), pdict)
             for key, values in parts.items():
