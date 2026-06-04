@@ -524,6 +524,27 @@
     </form>
   </dialog>
 
+  <!-- 服务记录时间轴对话框 -->
+  <dialog id="eventsModal" style="min-width:360px;max-width:560px;width:92vw">
+    <form method="dialog">
+      <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <h2 id="eventsModalTitle" style="margin:0;font-size:16px">服务记录</h2>
+        <button type="button" data-close-modal="eventsModal" class="icon-btn" aria-label="关闭">×</button>
+      </header>
+      <input type="hidden" id="eventsModalPipelineId" value="">
+      <!-- 时间轴 -->
+      <div id="eventsTimeline" style="max-height:340px;overflow-y:auto;margin-bottom:12px"></div>
+      <!-- 手动添加备注 -->
+      <div style="display:flex;gap:8px;align-items:flex-start">
+        <textarea id="eventsNoteInput" rows="2" placeholder="添加手动备注…" style="flex:1;resize:vertical;font-size:13px;padding:6px 8px;border:1px solid var(--border,#ddd);border-radius:6px;font-family:inherit"></textarea>
+        <button type="button" class="btn btn-primary" onclick="addPipelineNote()" style="white-space:nowrap;align-self:stretch">添加备注</button>
+      </div>
+      <footer style="margin-top:12px">
+        <button type="button" data-close-modal="eventsModal" class="ghost">关闭</button>
+      </footer>
+    </form>
+  </dialog>
+
   <script src="app.js"></script>
 </body>
 </html>

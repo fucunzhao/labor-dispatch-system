@@ -1310,6 +1310,7 @@ function renderPipelineTable() {
         ${hasRole('pipeline', 'advance') ? nextStatuses.map(s => `<button class="btn btn-primary" onclick="updatePipelineStatus(${p.id},'${s}')">→ ${STATUS_NAMES[s]}</button>`).join('') : ''}
         ${(hasRole('pipeline', 'revert') && canGoBack) ? `<button class="btn" onclick="updatePipelineStatus(${p.id},'${canGoBack}')">← 退回</button>` : ''}
         ${(hasRole('pipeline', 'revert') && p.status !== 'departed') ? `<button class="btn" onclick="updatePipelineStatus(${p.id},'departed')" style="color:var(--danger)">× 离职</button>` : ''}
+        <button class="btn" onclick="showPipelineEvents(${p.id},'${escapeHtml(p.worker_name)} → ${escapeHtml(p.demand_company+' '+p.demand_role)}')" title="查看服务记录">📋 记录</button>
       </td>
     </tr>`;
   });
@@ -1348,6 +1349,7 @@ function renderKanban() {
           ${hasRole('pipeline', 'advance') ? nextStatuses.map(s => `<button class="btn btn-primary" onclick="updatePipelineStatus(${p.id},'${s}')">→ ${STATUS_NAMES[s]}</button>`).join('') : ''}
           ${(hasRole('pipeline', 'revert') && canGoBack) ? `<button class="btn" onclick="updatePipelineStatus(${p.id},'${canGoBack}')">← 退回</button>` : ''}
           ${(hasRole('pipeline', 'revert') && p.status !== 'departed') ? `<button class="btn" onclick="updatePipelineStatus(${p.id},'departed')" style="color:var(--danger)">× 离职</button>` : ''}
+          <button class="btn" onclick="showPipelineEvents(${p.id},'${escapeHtml(p.worker_name)}')" title="服务记录">📋</button>
         </div>
       </div>`;
     }).join('');
@@ -1372,6 +1374,64 @@ async function updatePipelineStatus(pipelineId, newStatus) {
     }
   } catch (e) {
     alert("更新失败: " + e.message);
+  }
+}
+
+// ── 服务记录时间轴 ──────────────────────────────
+async function showPipelineEvents(pipelineId, title) {
+  const modal = document.querySelector("#eventsModal");
+  if (!modal) return;
+  document.querySelector("#eventsModalTitle").textContent = title || "服务记录";
+  document.querySelector("#eventsModalPipelineId").value = pipelineId;
+  document.querySelector("#eventsNoteInput").value = "";
+  document.querySelector("#eventsTimeline").innerHTML = '<p style="color:var(--muted);text-align:center;padding:20px">加载中…</p>';
+  modal.showModal();
+  await refreshPipelineEvents(pipelineId);
+}
+
+async function refreshPipelineEvents(pipelineId) {
+  try {
+    const resp = await api(`/api/pipeline/events?pipeline_id=${pipelineId}`);
+    const timeline = document.querySelector("#eventsTimeline");
+    if (!resp.ok) { timeline.innerHTML = `<p style="color:var(--danger)">加载失败：${escapeHtml(resp.error || "")}</p>`; return; }
+    const events = resp.events || [];
+    if (!events.length) {
+      timeline.innerHTML = '<p style="color:var(--muted);text-align:center;padding:20px">暂无服务记录</p>';
+      return;
+    }
+    const EVENT_ICONS = { status_change: "🔄", note: "📝", assign: "📌" };
+    timeline.innerHTML = `<div class="events-list">` + events.map(ev => `
+      <div class="event-item">
+        <span class="event-icon">${EVENT_ICONS[ev.event_type] || "•"}</span>
+        <div class="event-body">
+          <div class="event-content">${escapeHtml(ev.content || "")}</div>
+          <div class="event-meta">
+            ${ev.operator_name ? escapeHtml(ev.operator_name) + ' · ' : ''}${(ev.created_at || '').slice(0, 16)}
+          </div>
+        </div>
+      </div>`).join('') + `</div>`;
+  } catch (e) {
+    document.querySelector("#eventsTimeline").innerHTML = `<p style="color:var(--danger)">加载失败</p>`;
+  }
+}
+
+async function addPipelineNote() {
+  const pipelineId = Number(document.querySelector("#eventsModalPipelineId").value);
+  const note = document.querySelector("#eventsNoteInput").value.trim();
+  if (!pipelineId || !note) { alert("请输入备注内容"); return; }
+  try {
+    const resp = await api("/api/pipeline/note", {
+      method: "POST",
+      body: JSON.stringify({ pipeline_id: pipelineId, note })
+    });
+    if (resp.ok) {
+      document.querySelector("#eventsNoteInput").value = "";
+      await refreshPipelineEvents(pipelineId);
+    } else {
+      alert(resp.error || "添加备注失败");
+    }
+  } catch (e) {
+    alert("添加备注失败: " + e.message);
   }
 }
 
@@ -1503,6 +1563,13 @@ function renderAssignOptions(keyword) {
     const scoreMap = {};
     scored.forEach(s => { scoreMap[s.worker.id] = s; });
 
+    // 从 pipelineData 计算活跃求职者 (B方案：🔒 锁定标记)
+    const activeWorkerMap = {};
+    (pipelineData || []).forEach(p => {
+      if (p.status !== 'departed') {
+        activeWorkerMap[p.worker_id] = { company: p.demand_company, role: p.demand_role, status: STATUS_NAMES[p.status] || p.status };
+      }
+    });
     container.innerHTML = filtered.map(w => {
       const matchData = scoreMap[w.id];
       const matchScore = matchData ? matchData.score : null;
@@ -1511,6 +1578,16 @@ function renderAssignOptions(keyword) {
       const barHtml = matchBreakdown.map(b =>
         `<span title="${b.label}:${b.score}/${b.max}" style="display:inline-block;width:${Math.round(b.score/b.max*40)}px;height:4px;background:${b.score >= b.max*0.7 ? '#4caf50' : b.score >= b.max*0.4 ? '#ff9800' : '#e0e0e0'};border-radius:2px;margin-right:2px;vertical-align:middle"></span>`
       ).join('');
+      const activeInfo = activeWorkerMap[w.id];
+      if (activeInfo) {
+        // 已有活跃流程：显示锁定状态，不可点击
+        return `
+        <div class="assign-item assign-item-locked" title="该求职者已有活跃流程，请先结束再分配" style="opacity:0.55;cursor:not-allowed;background:var(--bg-secondary,#f8f8f8)">
+          <span class="assign-item-main">🔒 ${h(w.name)} ${w.phone ? '📞' + h(w.phone) : ''}</span>
+          <span class="assign-item-meta" style="color:var(--warning,#ff9800)">${h(activeInfo.company)} · ${h(activeInfo.role)} · ${h(activeInfo.status)}</span>
+          <span style="font-size:11px;color:var(--muted)">已有活跃流程，不可重复分配</span>
+        </div>`;
+      }
       return `
       <div class="assign-item" onclick="doAssignDemand(${w.id})" title="点击分配">
         <span class="assign-item-main">${h(w.name)} ${w.phone ? '📞' + h(w.phone) : ''}</span>
