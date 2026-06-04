@@ -189,6 +189,19 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_accounts_phone ON accounts(phone);
             CREATE INDEX IF NOT EXISTS idx_accounts_company ON accounts(company_key);
             CREATE INDEX IF NOT EXISTS idx_knowledge_company ON knowledge_entries(company_key);
+            CREATE TABLE IF NOT EXISTS assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                company_key TEXT NOT NULL DEFAULT '',
+                entity_type TEXT NOT NULL,
+                entity_id INTEGER NOT NULL,
+                assigned_to INTEGER NOT NULL,
+                assigned_by INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(company_key, entity_type, entity_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_assignments_company ON assignments(company_key);
+            CREATE INDEX IF NOT EXISTS idx_assignments_entity ON assignments(entity_type, entity_id);
+            CREATE INDEX IF NOT EXISTS idx_assignments_user ON assignments(assigned_to);
             CREATE TABLE IF NOT EXISTS pipeline_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 pipeline_id INTEGER NOT NULL,

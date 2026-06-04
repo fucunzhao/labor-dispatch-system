@@ -93,7 +93,20 @@ def get_payload(account=None):
                 w["phone"] = mask_phone(w["phone"])
         chat = [dict(row) for row in conn.execute(f"SELECT role, text FROM chat_messages {chat_where} ORDER BY id", chat_params)]
         knowledge = [row_to_knowledge(row) for row in conn.execute(f"SELECT * FROM knowledge_entries {knowledge_where} ORDER BY updated_at DESC, id DESC", knowledge_params)]
-    return {"account": account, "demands": demands, "workers": workers, "chat": chat, "knowledge": knowledge, "insights": build_insights(demands, workers)}
+        # 加载分派信息
+        assignments_rows = conn.execute("SELECT * FROM assignments WHERE company_key = ?", (account["companyKey"],)).fetchall()
+        assignments = [
+            {"id": r["id"], "entityType": r["entity_type"], "entityId": r["entity_id"],
+             "assignedTo": r["assigned_to"], "assignedBy": r["assigned_by"]}
+            for r in assignments_rows
+        ]
+        # 加载同公司账号列表（前端分派用）
+        account_rows = conn.execute(
+            "SELECT id, name, role, company FROM accounts WHERE company_key = ? ORDER BY id",
+            (account["companyKey"],)
+        ).fetchall()
+        account_list = [{"id": r["id"], "name": r["name"], "role": r["role"]} for r in account_rows]
+    return {"account": account, "demands": demands, "workers": workers, "chat": chat, "knowledge": knowledge, "insights": build_insights(demands, workers), "assignments": assignments, "accounts": account_list}
 
 
 def reset_seed_data(account):

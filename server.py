@@ -23,6 +23,8 @@ from routes_business import (
     handle_post_fuzzy_parse, handle_post_fuzzy_import,
     handle_post_pipeline_assign, handle_post_pipeline_status,
     handle_post_pipeline_note,
+    handle_get_assignments, handle_post_assign_auto,
+    handle_post_assign_manual, handle_delete_assignment,
     handle_post_knowledge_save, handle_post_knowledge_delete,
     handle_post_knowledge_batch_delete, handle_post_knowledge_batch_update,
     handle_post_knowledge_rebuild, handle_chat, handle_reset,
@@ -60,6 +62,8 @@ class Handler(SimpleHTTPRequestHandler):
             handle_get_pipeline_list(self, account)
         elif path == "/api/pipeline/events":
             handle_get_pipeline_events(self, account, query_params)
+        elif path == "/api/assignments":
+            handle_get_assignments(self, account)
         elif path not in self._STATIC_ALLOWLIST:
             self.send_response(404)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -103,6 +107,12 @@ class Handler(SimpleHTTPRequestHandler):
             handle_post_pipeline_status(self, account, self.read_json())
         elif path == "/api/pipeline/note":
             handle_post_pipeline_note(self, account, self.read_json())
+        elif path == "/api/assignments/auto":
+            handle_post_assign_auto(self, account, self.read_json())
+        elif path == "/api/assignments/manual":
+            handle_post_assign_manual(self, account, self.read_json())
+        elif path == "/api/assignments/delete":
+            handle_delete_assignment(self, account, self.read_json())
         elif path == "/api/knowledge/save":
             handle_post_knowledge_save(self, account, self.read_json())
         elif path == "/api/knowledge/delete":

@@ -24,6 +24,7 @@
       <button class="nav-item" data-view="workers" data-role="all">求职者库</button>
       <button class="nav-item" data-view="knowledge" data-role="owner,sales,service">私有知识库</button>
       <button class="nav-item" data-view="account" data-role="owner">账号管理</button>
+      <button class="nav-item" data-view="assignments" data-role="owner">人员分派</button>
       <button class="nav-item" data-view="assistant" data-role="all">AI 知识库助手</button>
     </nav>
     <div class="side-note">
@@ -334,6 +335,39 @@
             <div class="success-box" id="changePwdMessage"></div>
           </form>
         </section>
+      </div>
+    </section>
+
+    <section class="view" id="assignments" style="--accent:#6366f1">
+      <div class="toolbar">
+        <h3 style="margin:0">人员分派管理</h3>
+      </div>
+      <div class="layout two-col">
+
+        <!-- 企业需求分派 -->
+        <section class="panel">
+          <div class="panel-head">
+            <h4>📋 企业需求 → 业务运营专员</h4>
+          </div>
+          <div class="toolbar" style="margin-bottom:8px">
+            <button class="btn btn-sm" onclick="autoAssign('demand')" id="autoAssignDemandBtn">🔄 自动分配</button>
+            <span id="assignDemandStatus" class="assign-status"></span>
+          </div>
+          <div id="assignDemandList" class="assign-list"></div>
+        </section>
+
+        <!-- 求职者分派 -->
+        <section class="panel">
+          <div class="panel-head">
+            <h4>👤 求职者 → 招聘专员</h4>
+          </div>
+          <div class="toolbar" style="margin-bottom:8px">
+            <button class="btn btn-sm" onclick="autoAssign('worker')" id="autoAssignWorkerBtn">🔄 自动分配</button>
+            <span id="assignWorkerStatus" class="assign-status"></span>
+          </div>
+          <div id="assignWorkerList" class="assign-list"></div>
+        </section>
+
       </div>
     </section>
 

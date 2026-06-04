@@ -134,6 +134,7 @@ function renderAll() {
   renderKnowledgeBase();
   renderKnowledge();
   renderChat();
+  renderAssignments();
 }
 
 renderFuzzyResults();
@@ -511,6 +512,99 @@ function renderKnowledgeBase() {
 function renderChat() {
   els.chatLog.innerHTML = data.chat.map(item => `<div class="bubble ${item.role === "user" ? "user" : ""}">${escapeHtml(item.text)}</div>`).join("");
   els.chatLog.scrollTop = els.chatLog.scrollHeight;
+}
+
+
+function renderAssignments() {
+  if (!account || account.role !== "owner") return;
+  const assignments = data.assignments || [];
+  const accounts = data.accounts || [];
+
+  function userName(id) {
+    const a = accounts.find(x => x.id === id);
+    return a ? a.name : `ID:${id}`;
+  }
+
+  // 企业需求分派列表
+  const ds = data.demands || [];
+  const demandHtml = ds.map(d => {
+    const ass = assignments.find(x => x.entityType === "demand" && x.entityId === d.id);
+    return `<div class="assign-row">
+      <span class="assign-row-name">${h(d.company)} · ${h(d.role)}</span>
+      <select class="assign-user-select" data-entity-type="demand" data-entity-id="${d.id}" onchange="manualAssign(this)">
+        <option value="">— 未分派 —</option>
+        ${accounts.filter(acc => acc.role === "sales").map(acc =>
+          `<option value="${acc.id}"${acc.id === (ass?.assignedTo || 0) ? " selected" : ""}>${h(acc.name)}</option>`
+        ).join("")}
+      </select>
+      ${ass ? `<span class="assign-tag">${h(userName(ass.assignedTo))}</span>` : '<span class="assign-tag muted">未分派</span>'}
+    </div>`;
+  }).join("") || '<p class="assign-empty">暂无企业需求</p>';
+  document.querySelector("#assignDemandList").innerHTML = `<div class="assign-list-inner">${demandHtml}</div>`;
+
+  // 求职者分派列表
+  const ws = data.workers || [];
+  const workerHtml = ws.map(w => {
+    const ass = assignments.find(x => x.entityType === "worker" && x.entityId === w.id);
+    return `<div class="assign-row">
+      <span class="assign-row-name">${h(w.name)}${w.phone ? ' 📞' + h(w.phone) : ''}</span>
+      <select class="assign-user-select" data-entity-type="worker" data-entity-id="${w.id}" onchange="manualAssign(this)">
+        <option value="">— 未分派 —</option>
+        ${accounts.filter(acc => acc.role === "dispatcher").map(acc =>
+          `<option value="${acc.id}"${acc.id === (ass?.assignedTo || 0) ? " selected" : ""}>${h(acc.name)}</option>`
+        ).join("")}
+      </select>
+      ${ass ? `<span class="assign-tag">${h(userName(ass.assignedTo))}</span>` : '<span class="assign-tag muted">未分派</span>'}
+    </div>`;
+  }).join("") || '<p class="assign-empty">暂无求职者</p>';
+  document.querySelector("#assignWorkerList").innerHTML = `<div class="assign-list-inner">${workerHtml}</div>`;
+}
+
+async function autoAssign(entityType) {
+  if (!account) return;
+  const btn = document.querySelector(`#autoAssign${entityType === "demand" ? "Demand" : "Worker"}Btn`);
+  const statusEl = document.querySelector(`#assign${entityType === "demand" ? "Demand" : "Worker"}Status`);
+  if (!btn || !statusEl) return;
+  btn.disabled = true;
+  btn.textContent = "分配中...";
+  try {
+    const payload = await api("/api/assignments/auto", {
+      method: "POST",
+      body: JSON.stringify({ entityType })
+    });
+    if (payload.data) {
+      data = payload.data;
+      renderAssignments();
+    }
+    statusEl.textContent = payload.msg || "已完成";
+    statusEl.style.color = "#0d5b38";
+  } catch (e) {
+    statusEl.textContent = "分配失败: " + e.message;
+    statusEl.style.color = "#8a2424";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🔄 自动分配";
+  }
+}
+
+async function manualAssign(selectEl) {
+  const entityType = selectEl.dataset.entityType;
+  const entityId = Number(selectEl.dataset.entityId);
+  const assignedTo = Number(selectEl.value);
+  if (!assignedTo) return;
+  try {
+    const payload = await api("/api/assignments/manual", {
+      method: "POST",
+      body: JSON.stringify({ entityType, entityIds: [entityId], assignedTo })
+    });
+    if (payload.data) {
+      data = payload.data;
+      renderAssignments();
+    }
+  } catch (e) {
+    selectEl.value = "";
+    alert("分配失败: " + e.message);
+  }
 }
 
 function groupBy(items, key) {

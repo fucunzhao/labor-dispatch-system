@@ -388,6 +388,96 @@ def handle_chat(handler, account, body):
     handler.send_json({"ok": True, "data": get_payload(account)})
 
 
+# ── 人员分派 ────────────────────────────────────
+def handle_get_assignments(handler, account):
+    if not check_role(account, "owner"):
+        handler.send_json({"ok": False, "error": "仅老板可管理分派"}, status=403)
+        return
+    handler.send_json({"ok": True, "data": get_payload(account)})
+
+
+def handle_post_assign_auto(handler, account, body):
+    if not check_role(account, "owner"):
+        handler.send_json({"ok": False, "error": "仅老板可自动分派"}, status=403)
+        return
+    entity_type = body.get("entityType", "demand")  # 'demand' or 'worker'
+    target_role = "sales" if entity_type == "demand" else "dispatcher"
+    with connect() as conn:
+        company_key = account["companyKey"]
+        # 获取所有目标角色的账号
+        target_users = conn.execute(
+            "SELECT id, name FROM accounts WHERE company_key = ? AND role = ? ORDER BY id",
+            (company_key, target_role)
+        ).fetchall()
+        if not target_users:
+            handler.send_json({"ok": False, "error": f"没有{target_role}角色的账号可分配"})
+            return
+        # 获取每个目标账号当前已分配的数量（用于负载均衡）
+        user_loads = {}
+        for u in target_users:
+            cnt = conn.execute(
+                "SELECT COUNT(*) as c FROM assignments WHERE company_key = ? AND entity_type = ? AND assigned_to = ?",
+                (company_key, entity_type, u["id"])
+            ).fetchone()["c"]
+            user_loads[u["id"]] = {"name": u["name"], "count": cnt}
+        # 找出所有未分配的需求/求职者
+        id_field = "id"
+        table = "demands" if entity_type == "demand" else "workers"
+        unassigned = conn.execute(
+            f"SELECT t.id, t.{'company' if entity_type == 'demand' else 'name'} as name "
+            f"FROM {table} t "
+            f"WHERE company_key = ? AND t.id NOT IN (SELECT entity_id FROM assignments WHERE company_key = ? AND entity_type = ?) ",
+            (company_key, company_key, entity_type)
+        ).fetchall()
+        if not unassigned:
+            handler.send_json({"ok": True, "msg": "所有数据已分配完毕", "data": get_payload(account)})
+            return
+        # 按负载从低到高排序，轮询分配
+        sorted_users = sorted(target_users, key=lambda u: user_loads[u["id"]]["count"])
+        idx = 0
+        for item in unassigned:
+            user_id = sorted_users[idx % len(sorted_users)]["id"]
+            conn.execute(
+                "INSERT OR IGNORE INTO assignments (company_key, entity_type, entity_id, assigned_to, assigned_by) VALUES (?, ?, ?, ?, ?)",
+                (company_key, entity_type, item["id"], user_id, account["id"])
+            )
+            idx += 1
+    handler.send_json({"ok": True, "msg": f"已自动分配 {len(unassigned)} 条{entity_type}", "data": get_payload(account)})
+
+
+def handle_post_assign_manual(handler, account, body):
+    if not check_role(account, "owner"):
+        handler.send_json({"ok": False, "error": "仅老板可手动分派"}, status=403)
+        return
+    entity_type = body.get("entityType", "")
+    entity_ids = body.get("entityIds", [])
+    target_user_id = int(body.get("assignedTo") or 0)
+    if entity_type not in ("demand", "worker") or not entity_ids or not target_user_id:
+        handler.send_json({"ok": False, "error": "参数错误"})
+        return
+    with connect() as conn:
+        company_key = account["companyKey"]
+        for eid in entity_ids:
+            conn.execute(
+                "INSERT OR REPLACE INTO assignments (company_key, entity_type, entity_id, assigned_to, assigned_by) VALUES (?, ?, ?, ?, ?)",
+                (company_key, entity_type, int(eid), target_user_id, account["id"])
+            )
+    handler.send_json({"ok": True, "data": get_payload(account)})
+
+
+def handle_delete_assignment(handler, account, body):
+    if not check_role(account, "owner"):
+        handler.send_json({"ok": False, "error": "仅老板可删除分派"}, status=403)
+        return
+    assignment_id = int(body.get("id") or 0)
+    if not assignment_id:
+        handler.send_json({"ok": False, "error": "缺少分派ID"})
+        return
+    with connect() as conn:
+        conn.execute("DELETE FROM assignments WHERE id = ? AND company_key = ?", (assignment_id, account["companyKey"]))
+    handler.send_json({"ok": True, "data": get_payload(account)})
+
+
 def handle_reset(handler, account):
     require_login(account)
     if not check_role(account, "owner"):
