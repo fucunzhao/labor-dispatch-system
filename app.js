@@ -412,7 +412,7 @@ function renderDemandTable() {
         <td>${tag(`${remaining(item)} 人`, remaining(item) > 50 ? "danger" : "warn")}</td>
         <td>${h(item.salary)}</td>
         <td>${remaining(item) === 0 ? tag("已满员") : tag("匹配中", "warn")}</td>
-        <td>${matches.map(match => `${h(match.worker.name)} ${match.score}分`).join("<br>") || "暂无"}</td>
+        <td>${matches.map(match => `<span title="${h(match.reasons.join(' | '))}">${h(match.worker.name)} <strong>${match.score}分</strong><br><span style="font-size:11px;color:#888">${match.reasons.slice(0,2).map(h).join(' · ') || ''}</span></span>`).join("<br>") || "暂无"}</td>
         <td><button class="ghost" onclick="showAssignDemand(${item.id})" data-write style="font-size:12px" data-perm="pipeline.assign">分配求职者</button></td>
       </tr>
     `;
@@ -439,7 +439,7 @@ function renderWorkers() {
         <div class="tags">${worker.tags.map(item => tag(item)).join("")}${worker.acceptShifts ? tag(worker.acceptShifts === "是" ? "可倒班" : "不倒班") : ""}${worker.acceptDorm ? tag(worker.acceptDorm === "是" ? "要住宿" : "不住宿") : ""}</div>
         <div class="item" style="margin-top:12px">
           <strong>推荐岗位</strong>
-          <span class="item-meta">${best ? `${h(best.demand.company)} · ${h(best.demand.role)}（${best.score}分）` : "暂无合适岗位"}</span>
+          <span class="item-meta">${best ? `${h(best.demand.company)} · ${h(best.demand.role)}（${best.score}分）<br>${best.reasons.slice(0,2).map(r => `<small style="color:#888">${h(r)}</small>`).join(' ')}` : "暂无合适岗位"}</span>
         </div>
         <div class="public-actions" style="margin-top:8px">
           <button class="ghost" onclick="showAssignWorker(${worker.id})" data-write data-perm="pipeline.assign">分配岗位</button>
@@ -529,46 +529,154 @@ function topTags() {
   return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 6);
 }
 
-function rankWorkers(demand) {
-  return data.workers.map(worker => {
-    let score = Math.round(Number(worker.score || 70) * 0.45);
-    const reasons = [];
-    const demandText = `${demand.company} ${demand.role} ${demand.type} ${demand.location} ${demand.notes}`.toLowerCase();
-    const workerText = `${worker.location} ${worker.available} ${worker.period} ${worker.tags.join(" ")}`.toLowerCase();
+// ── 多维匹配辅助函数 ──────────────────────────────────────────────
 
-    if (demandText.includes(worker.location.toLowerCase()) || workerText.includes(demand.location.slice(0, 2).toLowerCase())) {
-      score += 14;
-      reasons.push("地区接近");
+// 地区标准化映射：将自由文本映射到层级 city > district > zone
+const LOCATION_MAP = {
+  city: ["柳州", "柳城", "融安", "融水", "三江"],
+  district: {
+    "柳东":   ["柳东", "柳东新区", "柳东园区", "阳和工业新区", "官塘", "柳东花岭", "柳东花玲"],
+    "柳北":   ["柳北", "柳北区", "河北"],
+    "城中":   ["城中", "城中区", "谷埠"],
+    "鱼峰":   ["鱼峰", "鱼峰区", "洛埠"],
+    "柳南":   ["柳南", "柳南区", "太阳村"],
+    "柳江":   ["柳江", "柳江区", "拉堡"],
+  }
+};
+
+function scoreLocation(workerLoc, demandLoc) {
+  if (!workerLoc || !demandLoc) return { score: 0, reason: "" };
+  const wl = workerLoc.toLowerCase();
+  const dl = demandLoc.toLowerCase();
+  // 精确包含
+  if (wl.includes(dl) || dl.includes(wl) || wl === dl) {
+    return { score: 40, reason: `地区精确匹配（${demandLoc}）` };
+  }
+  // 同区域
+  for (const [district, zones] of Object.entries(LOCATION_MAP.district)) {
+    const wInZone = zones.some(z => wl.includes(z.toLowerCase()));
+    const dInZone = zones.some(z => dl.includes(z.toLowerCase()));
+    if (wInZone && dInZone) {
+      return { score: 25, reason: `同区域（${district}）` };
     }
-    if (worker.tags.some(item => demandText.includes(item.slice(0, 2).toLowerCase()))) {
-      score += 16;
-      reasons.push("岗位经验匹配");
-    }
-    if (demand.type.includes("短期") && (worker.period.includes("暑假") || worker.period.includes("7-15") || worker.tags.includes("短期工"))) {
-      score += 14;
-      reasons.push("可做短期");
-    }
-    if (demand.type.includes("长期") && worker.period.includes("长期")) {
-      score += 14;
-      reasons.push("适合长期稳定");
-    }
-    if (demand.notes.includes("夜班") && worker.tags.some(item => item.includes("夜班"))) {
-      score += 12;
-      reasons.push("接受夜班");
-    }
-    if (demand.notes.includes("住宿") && worker.tags.some(item => item.includes("住宿"))) {
-      score += 8;
-      reasons.push("住宿需求一致");
-    }
-    for (const keyword of ["包装", "分拣", "质检", "注塑", "物流", "抛光", "坐班"]) {
-      if ((demand.role + demand.notes).includes(keyword) && worker.tags.some(item => item.includes(keyword))) {
-        score += 10;
-        reasons.push(`${keyword}匹配`);
-        break;
+  }
+  // 同城
+  const sameCity = LOCATION_MAP.city.some(c => wl.includes(c) && dl.includes(c));
+  if (sameCity) return { score: 10, reason: "同城市" };
+  return { score: 0, reason: "" };
+}
+
+// 时间周期标准化
+function normalizePeriod(text) {
+  if (!text) return "unknown";
+  const t = text.toLowerCase();
+  if (t.includes("长期") || t.includes("稳定") || t.includes("正式")) return "long";
+  if (t.includes("暑假") || t.includes("寒假") || t.includes("假期")) return "seasonal";
+  if (t.includes("1-3") || t.includes("3个月") || t.includes("1个月") || t.includes("2个月")) return "medium";
+  if (t.includes("7-15") || t.includes("半月") || t.includes("短期") || t.includes("临时")) return "short";
+  if (t.includes("弹性") || t.includes("灵活") || t.includes("兼职")) return "flexible";
+  return "unknown";
+}
+
+// 时间周期兼容矩阵（岗位需求类型 → 求职者类型 → 得分）
+const PERIOD_MATRIX = {
+  long:     { long: 25, medium: 12, seasonal: 5,  short: 0,  flexible: 8,  unknown: 5 },
+  medium:   { long: 15, medium: 25, seasonal: 15, short: 10, flexible: 15, unknown: 8 },
+  seasonal: { long: 5,  medium: 15, seasonal: 25, short: 15, flexible: 15, unknown: 8 },
+  short:    { long: 0,  medium: 10, seasonal: 15, short: 25, flexible: 20, unknown: 8 },
+  flexible: { long: 8,  medium: 15, seasonal: 15, short: 20, flexible: 25, unknown: 8 },
+  unknown:  { long: 8,  medium: 8,  seasonal: 8,  short: 8,  flexible: 8,  unknown: 5 },
+};
+
+function scorePeriod(workerPeriod, demandType) {
+  const w = normalizePeriod(workerPeriod);
+  const d = normalizePeriod(demandType);
+  const s = (PERIOD_MATRIX[d] || PERIOD_MATRIX.unknown)[w] || 5;
+  const labels = { long: "长期稳定", medium: "中期", seasonal: "季节性", short: "短期", flexible: "弹性" };
+  const wLabel = labels[w] || workerPeriod;
+  const dLabel = labels[d] || demandType;
+  const reason = s >= 20 ? `周期完全匹配（${wLabel}）` : s >= 12 ? `周期兼容（${wLabel}↔${dLabel}）` : "";
+  return { score: s, reason };
+}
+
+// 薪资解析：返回 { min, max, unit } unit=month|hour|day
+function parseSalary(text) {
+  if (!text) return null;
+  const t = text.replace(/,/g, "").toLowerCase();
+  // 区间 5000-5500
+  let m = t.match(/(\d{3,5})\s*[-~至到]\s*(\d{3,5})/);
+  if (m) return { min: +m[1], max: +m[2], unit: "month" };
+  // X以上 / X+
+  m = t.match(/(\d{3,5})\s*(?:以上|\+|起)/);
+  if (m) return { min: +m[1], max: null, unit: "month" };
+  // X元/小时
+  m = t.match(/(\d{2,3})\s*元?\s*[\/每]\s*(?:小时|时)/);
+  if (m) return { min: +m[1] * 8 * 22, max: null, unit: "month" }; // 换算月薪
+  // 周结 / 日结 — 视为弹性
+  if (t.includes("周结") || t.includes("日结") || t.includes("面议")) return { min: 0, max: null, unit: "flexible" };
+  return null;
+}
+
+function scoreSalary(workerSalary, demandSalary) {
+  const w = parseSalary(workerSalary);
+  const d = parseSalary(demandSalary);
+  if (!w || !d) return { score: 8, reason: "" }; // 无法解析给基础分
+  if (w.unit === "flexible" || d.unit === "flexible") return { score: 10, reason: "薪资弹性接受" };
+  const wMin = w.min;
+  const dMax = d.max || d.min * 1.2;
+  const dMin = d.min;
+  if (wMin <= dMax && wMin >= dMin) return { score: 15, reason: `薪资吻合（期望${workerSalary}）` };
+  if (wMin <= dMax) return { score: 12, reason: `薪资在范围内` };
+  if (wMin <= dMax * 1.1) return { score: 6, reason: `薪资略超（${workerSalary}）` };
+  return { score: 0, reason: "" };
+}
+
+// 技能标签匹配（最高20分）
+const SKILL_SYNONYMS = {
+  "打包": "包装", "封装": "包装", "抽检": "质检", "检验": "质检",
+  "压铸": "注塑", "射出": "注塑", "仓库": "物流", "搬运": "物流",
+  "磨光": "抛光", "打磨": "抛光", "流水线": "坐班"
+};
+
+function scoreSkills(workerTags, demandRole, demandNotes) {
+  const demandText = `${demandRole} ${demandNotes}`.toLowerCase();
+  const normalize = t => SKILL_SYNONYMS[t] || t;
+  const matched = [];
+  let pts = 0;
+  for (const rawTag of workerTags) {
+    const tag = normalize(rawTag);
+    if (demandText.includes(tag.toLowerCase()) || demandText.includes(rawTag.toLowerCase())) {
+      if (!matched.includes(tag)) {
+        matched.push(tag);
+        pts += 7;
       }
     }
+  }
+  pts = Math.min(pts, 20);
+  const reason = matched.length ? `技能匹配：${matched.slice(0, 3).join("、")}` : "";
+  return { score: pts, reason };
+}
 
-    return { worker, score: Math.min(score, 100), reasons };
+// ── 主评分函数（四维，满分100） ─────────────────────────────────────
+function rankWorkers(demand) {
+  return data.workers.map(worker => {
+    const loc   = scoreLocation(worker.location, demand.location);
+    const per   = scorePeriod(worker.period, demand.type);
+    const sal   = scoreSalary(worker.salary, demand.salary);
+    const skill = scoreSkills(worker.tags, demand.role, demand.notes || "");
+
+    const total = Math.min(loc.score + per.score + sal.score + skill.score, 100);
+    const reasons = [loc.reason, per.reason, sal.reason, skill.reason].filter(Boolean);
+
+    // 维度明细，供前端展示进度条
+    const breakdown = [
+      { label: "地区", score: loc.score,   max: 40 },
+      { label: "周期", score: per.score,   max: 25 },
+      { label: "薪资", score: sal.score,   max: 15 },
+      { label: "技能", score: skill.score, max: 20 },
+    ];
+
+    return { worker, score: total, reasons, breakdown };
   }).sort((a, b) => b.score - a.score);
 }
 
@@ -1389,13 +1497,29 @@ function renderAssignOptions(keyword) {
       container.innerHTML = '<p class="assign-empty">没有匹配的求职者</p>';
       return;
     }
-    container.innerHTML = filtered.map(w => `
+    const demandId = Number(document.querySelector("#assignDemandId").value);
+    const targetDemand = data.demands.find(d => d.id === demandId);
+    const scored = targetDemand ? rankWorkers(targetDemand) : [];
+    const scoreMap = {};
+    scored.forEach(s => { scoreMap[s.worker.id] = s; });
+
+    container.innerHTML = filtered.map(w => {
+      const matchData = scoreMap[w.id];
+      const matchScore = matchData ? matchData.score : null;
+      const matchReasons = matchData ? matchData.reasons.slice(0, 2) : [];
+      const matchBreakdown = matchData ? matchData.breakdown : [];
+      const barHtml = matchBreakdown.map(b =>
+        `<span title="${b.label}:${b.score}/${b.max}" style="display:inline-block;width:${Math.round(b.score/b.max*40)}px;height:4px;background:${b.score >= b.max*0.7 ? '#4caf50' : b.score >= b.max*0.4 ? '#ff9800' : '#e0e0e0'};border-radius:2px;margin-right:2px;vertical-align:middle"></span>`
+      ).join('');
+      return `
       <div class="assign-item" onclick="doAssignDemand(${w.id})" title="点击分配">
         <span class="assign-item-main">${h(w.name)} ${w.phone ? '📞' + h(w.phone) : ''}</span>
-        <span class="assign-item-meta">${h(w.location)}｜${h(w.period)}｜${w.score}分${w.expectedRole ? '｜期望' + h(w.expectedRole) : ''}</span>
+        <span class="assign-item-meta">${h(w.location)}｜${h(w.period)}${matchScore !== null ? `｜<strong>${matchScore}分</strong>` : `｜${w.score}分`}${w.expectedRole ? '｜期望' + h(w.expectedRole) : ''}</span>
+        ${matchReasons.length ? `<span style="font-size:11px;color:#888">${matchReasons.map(h).join(' · ')}</span>` : ''}
+        ${barHtml ? `<div style="margin-top:4px">${barHtml}</div>` : ''}
         <span class="assign-item-tags">${w.tags.slice(0, 3).map(t => h(t)).join(' · ')}</span>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   }
 }
 
