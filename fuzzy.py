@@ -309,6 +309,7 @@ def parse_xlsx_workers(rows):
                 pass
         if isinstance(val, str):
             # Attempt to parse known formats
+            import datetime
             formats = ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y.%m.%d"]
             for fmt in formats:
                 try:
