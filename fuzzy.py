@@ -307,7 +307,15 @@ def parse_xlsx_workers(rows):
                 return d.strftime("%Y-%m-%d")
             except (ValueError, OverflowError):
                 pass
-        return val
+        if isinstance(val, str):
+            # Attempt to parse known formats
+            formats = ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y.%m.%d"]
+            for fmt in formats:
+                try:
+                    return datetime.datetime.strptime(val, fmt).strftime("%Y-%m-%d")
+                except ValueError:
+                    continue
+        return val  # Return as-is if no match
 
     items = []
     MAX_XLSX_ITEMS = 200
