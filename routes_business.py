@@ -188,13 +188,29 @@ def handle_post_pipeline_assign(handler, account, body):
     if not demand_id or not worker_id:
         handler.send_json({"ok": False, "error": "缺少需求ID或求职者ID"}, status=400)
         return
+    company_key = account["companyKey"]
     with connect() as conn:
-        # B方案：全局唯一活跃检查 —— 同一求职者不能同时有两条活跃流程
+        # 校验 demand / worker 都属于当前租户，防越权 + 防空指针
+        demand_row = conn.execute(
+            "SELECT company, role FROM demands WHERE id = ? AND company_key = ?",
+            (demand_id, company_key)
+        ).fetchone()
+        if not demand_row:
+            handler.send_json({"ok": False, "error": "企业需求不存在或无权访问"}, status=404)
+            return
+        worker_row = conn.execute(
+            "SELECT name FROM workers WHERE id = ? AND company_key = ?",
+            (worker_id, company_key)
+        ).fetchone()
+        if not worker_row:
+            handler.send_json({"ok": False, "error": "求职者不存在或无权访问"}, status=404)
+            return
+        # 全局唯一活跃检查
         active = conn.execute(
             """SELECT rp.id, d.company, d.role FROM recruitment_pipeline rp
                JOIN demands d ON d.id = rp.demand_id
                WHERE rp.worker_id = ? AND rp.company_key = ? AND rp.status NOT IN ('departed')""",
-            (worker_id, account["companyKey"])
+            (worker_id, company_key)
         ).fetchone()
         if active:
             handler.send_json({"ok": False, "error": f"该求职者已有活跃流程（{active['company']} · {active['role']}），请先结束当前流程再重新分配"}, status=409)
@@ -203,21 +219,18 @@ def handle_post_pipeline_assign(handler, account, body):
         cur = conn.execute(
             """INSERT INTO recruitment_pipeline (demand_id, worker_id, company_key, status, assigned_by, created_at, updated_at)
                VALUES (?, ?, ?, 'assigned', ?, datetime('now'), datetime('now'))""",
-            (demand_id, worker_id, account["companyKey"], account["id"])
+            (demand_id, worker_id, company_key, account["id"])
         )
         pipeline_id = cur.lastrowid
         conn.execute(
             "UPDATE demands SET signed = signed + 1 WHERE id = ? AND company_key = ?",
-            (demand_id, account["companyKey"])
+            (demand_id, company_key)
         )
-        # C方案：自动写入分配事件
-        worker_row = conn.execute("SELECT name FROM workers WHERE id = ?", (worker_id,)).fetchone()
-        demand_row = conn.execute("SELECT company, role FROM demands WHERE id = ?", (demand_id,)).fetchone()
         content = f"分配至【{demand_row['company']} · {demand_row['role']}】"
         conn.execute(
             """INSERT INTO pipeline_events (pipeline_id, company_key, operator_id, operator_name, event_type, from_status, to_status, content)
                VALUES (?, ?, ?, ?, 'status_change', '', 'assigned', ?)""",
-            (pipeline_id, account["companyKey"], account["id"], account.get("name", ""), content)
+            (pipeline_id, company_key, account["id"], account.get("name", ""), content)
         )
     handler.send_json({"ok": True})
 
@@ -368,9 +381,11 @@ def handle_chat(handler, account, body):
     q = question.lower()
     answer_parts = []
     for d in demands:
-        if any(kw in q for kw in [d["company"].lower(), d["role"].lower(), d["location"].lower()]):
+        # 过滤空串后再匹配，避免 "" in q 永远 True，导致每条 demand 都被命中
+        kws = [k.lower() for k in (d.get("company"), d.get("role"), d.get("location")) if k and k.strip()]
+        if kws and any(kw in q for kw in kws):
             gap = max(int(d["headcount"]) - int(d.get("signed") or 0), 0)
-            answer_parts.append(f"【{d['company']}】招聘{d['role']}，{d['type']}，地点{d['location']}，薪资{d['salary']}，缺{gap}人。{d['notes'][:200]}")
+            answer_parts.append(f"【{d['company']}】招聘{d['role']}，{d['type']}，地点{d['location']}，薪资{d['salary']}，缺{gap}人。{(d.get('notes') or '')[:200]}")
             if len(answer_parts) >= 3:
                 break
     if not answer_parts:

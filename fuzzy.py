@@ -2,8 +2,42 @@
 import re
 import io
 import zipfile
+import datetime
 from pathlib import Path
 from xml.etree import ElementTree
+
+# Excel 序列日期基准（1900 日期系统，因为 1900 不是闰年的历史 bug 实际起点是 1899-12-30）
+_EXCEL_EPOCH = datetime.datetime(1899, 12, 30)
+_DATE_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%m/%d/%Y", "%Y.%m.%d", "%Y年%m月%d日")
+
+
+def _normalize_date(val):
+    """把 Excel 序列号、各种常见日期文本归一化为 YYYY-MM-DD；不可识别就原样返回。"""
+    if val is None:
+        return ""
+    if not isinstance(val, str):
+        try:
+            val = str(val)
+        except Exception:
+            return ""
+    s = val.strip()
+    if not s:
+        return ""
+    # 1) Excel 序列日期（纯数字或单点小数）
+    digits_only = s.replace(".", "", 1)
+    if digits_only.isdigit():
+        try:
+            d = _EXCEL_EPOCH + datetime.timedelta(days=float(s))
+            return d.strftime("%Y-%m-%d")
+        except (ValueError, OverflowError):
+            pass
+    # 2) 常见日期格式
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return s  # 完全无法识别就原样返回
 
 
 def split_fuzzy_sections(text):
@@ -235,7 +269,13 @@ def parse_xlsx_demands(rows):
     def _cell(col_map, key, cells, default=""):
         idx = col_map.get(key, -1)
         if 0 <= idx < len(cells):
-            return cells[idx].strip()
+            v = cells[idx]
+            if v is None:
+                return default
+            try:
+                return str(v).strip()
+            except Exception:
+                return default
         return default
 
     results = []
@@ -243,7 +283,7 @@ def parse_xlsx_demands(rows):
     for cells in rows[1:]:
         if len(results) >= MAX_XLSX_ITEMS:
             break
-        if not any(c.strip() for c in cells if c):
+        if not any((c or "").strip() for c in cells):
             continue
         headcount_val = _cell(col_map, "headcount", cells, "20")
         results.append({
@@ -252,8 +292,8 @@ def parse_xlsx_demands(rows):
             "role": _cell(col_map, "role", cells, ""),
             "type": _cell(col_map, "type", cells, "长期工"),
             "location": _cell(col_map, "location", cells, ""),
-            "start": _cell(col_map, "start", cells, "2026-05-13"),
-            "end": _cell(col_map, "end", cells, ""),
+            "start": _normalize_date(_cell(col_map, "start", cells, "")) or "2026-05-13",
+            "end": _normalize_date(_cell(col_map, "end", cells, "")),
             "headcount": int(headcount_val) if headcount_val.isdigit() else 20,
             "signed": 0,
             "salary": _cell(col_map, "salary", cells, ""),
@@ -296,34 +336,21 @@ def parse_xlsx_workers(rows):
     def _cell(col_map, key, cells, default=""):
         idx = col_map.get(key, -1)
         if 0 <= idx < len(cells):
-            return cells[idx].strip()
-        return default
-
-    def _date(val):
-        if val and val.replace(".", "", 1).isdigit():
-            import datetime
+            v = cells[idx]
+            if v is None:
+                return default
             try:
-                d = datetime.datetime(1899, 12, 30) + datetime.timedelta(days=float(val))
-                return d.strftime("%Y-%m-%d")
-            except (ValueError, OverflowError):
-                pass
-        if isinstance(val, str):
-            # Attempt to parse known formats
-            import datetime
-            formats = ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y.%m.%d"]
-            for fmt in formats:
-                try:
-                    return datetime.datetime.strptime(val, fmt).strftime("%Y-%m-%d")
-                except ValueError:
-                    continue
-        return val  # Return as-is if no match
+                return str(v).strip()
+            except Exception:
+                return default
+        return default
 
     items = []
     MAX_XLSX_ITEMS = 200
     for cells in rows[1:]:
         if len(items) >= MAX_XLSX_ITEMS:
             break
-        if not any(c.strip() for c in cells if c):
+        if not any((c or "").strip() for c in cells):
             continue
         items.append({
             "name": _cell(col_map, "name", cells, ""), "phone": _cell(col_map, "phone", cells, ""),
@@ -331,13 +358,26 @@ def parse_xlsx_workers(rows):
             "education": _cell(col_map, "education", cells, ""), "location": _cell(col_map, "location", cells, ""),
             "available": _cell(col_map, "available", cells, ""), "period": _cell(col_map, "period", cells, "长期稳定"),
             "expectedRole": _cell(col_map, "expectedRole", cells, ""), "salary": _cell(col_map, "salary", cells, ""),
-            "registrationDate": _date(_cell(col_map, "registrationDate", cells, "")),
-            "interviewDate": _date(_cell(col_map, "interviewDate", cells, "")),
-            "desiredStartDate": _date(_cell(col_map, "desiredStartDate", cells, "")),
+            "registrationDate": _normalize_date(_cell(col_map, "registrationDate", cells, "")),
+            "interviewDate": _normalize_date(_cell(col_map, "interviewDate", cells, "")),
+            "desiredStartDate": _normalize_date(_cell(col_map, "desiredStartDate", cells, "")),
             "previousJob": _cell(col_map, "previousJob", cells, ""),
             "hasInterviewed": _cell(col_map, "hasInterviewed", cells, ""),
             "hasEmployed": _cell(col_map, "hasEmployed", cells, ""),
-            "employDate": _date(_cell(col_map, "employDate", cells, "")),
+            "employDate": _normalize_date(_cell(col_map, "employDate", cells, "")),
+            "desiredCompany": _cell(col_map, "desiredCompany", cells, ""),
+            "desiredRole": _cell(col_map, "expectedRole", cells, ""),
+            "acceptShifts": _cell(col_map, "acceptShifts", cells, ""),
+            "acceptDorm": _cell(col_map, "acceptDorm", cells, ""),
+            "acceptSocialInsurance": _cell(col_map, "acceptSocialInsurance", cells, ""),
+            "desiredArea": _cell(col_map, "desiredArea", cells, ""),
+            "otherWishes": _cell(col_map, "otherWishes", cells, ""),
+            "score": 75, "tags": [], "note": "", "source": "模版导入", "confidence": 90,
+        })
+    return items
+terviewed": _cell(col_map, "hasInterviewed", cells, ""),
+            "hasEmployed": _cell(col_map, "hasEmployed", cells, ""),
+            "employDate": _normalize_date(_cell(col_map, "employDate", cells, "")),
             "desiredCompany": _cell(col_map, "desiredCompany", cells, ""),
             "desiredRole": _cell(col_map, "expectedRole", cells, ""),
             "acceptShifts": _cell(col_map, "acceptShifts", cells, ""),
