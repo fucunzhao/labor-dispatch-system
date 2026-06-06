@@ -375,16 +375,3 @@ def parse_xlsx_workers(rows):
             "score": 75, "tags": [], "note": "", "source": "模版导入", "confidence": 90,
         })
     return items
-terviewed": _cell(col_map, "hasInterviewed", cells, ""),
-            "hasEmployed": _cell(col_map, "hasEmployed", cells, ""),
-            "employDate": _normalize_date(_cell(col_map, "employDate", cells, "")),
-            "desiredCompany": _cell(col_map, "desiredCompany", cells, ""),
-            "desiredRole": _cell(col_map, "expectedRole", cells, ""),
-            "acceptShifts": _cell(col_map, "acceptShifts", cells, ""),
-            "acceptDorm": _cell(col_map, "acceptDorm", cells, ""),
-            "acceptSocialInsurance": _cell(col_map, "acceptSocialInsurance", cells, ""),
-            "desiredArea": _cell(col_map, "desiredArea", cells, ""),
-            "otherWishes": _cell(col_map, "otherWishes", cells, ""),
-            "score": 75, "tags": [], "note": "", "source": "模版导入", "confidence": 90,
-        })
-    return items
