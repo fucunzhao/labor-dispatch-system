@@ -109,6 +109,32 @@ def get_payload(account=None):
     return {"account": account, "demands": demands, "workers": workers, "chat": chat, "knowledge": knowledge, "insights": build_insights(demands, workers), "assignments": assignments, "accounts": account_list}
 
 
+def _wipe_tenant_data(conn, company_key):
+    """删掉当前租户的所有业务数据。不重置示例。"""
+    conn.execute("DELETE FROM pipeline_events WHERE company_key = ?", (company_key,))
+    conn.execute("DELETE FROM recruitment_pipeline WHERE company_key = ?", (company_key,))
+    conn.execute("DELETE FROM assignments WHERE company_key = ?", (company_key,))
+    conn.execute("DELETE FROM chat_messages WHERE company_key = ?", (company_key,))
+    conn.execute("DELETE FROM workers WHERE company_key = ?", (company_key,))
+    conn.execute("DELETE FROM demands WHERE company_key = ?", (company_key,))
+    conn.execute("DELETE FROM knowledge_entries WHERE company_key = ?", (company_key,))
+
+
+def clear_tenant_data(account):
+    """彻底清空当前企业的所有业务数据。需要 owner 角色 + 调用方完成二次确认。"""
+    require_login(account)
+    if account.get("role") != "owner":
+        raise PermissionError("只有老板/管理员可以清空企业数据。")
+    company_key = account["companyKey"]
+    account_id = int(account["id"])
+    with connect() as conn:
+        _wipe_tenant_data(conn, company_key)
+        conn.execute(
+            "INSERT INTO chat_messages (account_id, company_key, role, text) VALUES (?, ?, ?, ?)",
+            (account_id, company_key, "assistant", "当前企业的全部业务数据已被清空。"),
+        )
+
+
 def reset_seed_data(account):
     require_login(account)
     if account.get("role") != "owner":
@@ -116,10 +142,7 @@ def reset_seed_data(account):
     company_key = account["companyKey"]
     account_id = int(account["id"])
     with connect() as conn:
-        conn.execute("DELETE FROM chat_messages WHERE company_key = ?", (company_key,))
-        conn.execute("DELETE FROM workers WHERE company_key = ?", (company_key,))
-        conn.execute("DELETE FROM demands WHERE company_key = ?", (company_key,))
-        conn.execute("DELETE FROM knowledge_entries WHERE company_key = ?", (company_key,))
+        _wipe_tenant_data(conn, company_key)
         for demand in DEMANDS:
             conn.execute("""INSERT INTO demands (account_id, company_key, company, role, type, location, start_date, end_date, headcount, signed, salary, age, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                          (account_id, company_key, demand["company"], demand["role"], demand["type"], demand["location"], demand["start"], demand["end"], demand["headcount"], demand["signed"], demand["salary"], demand["age"], demand["notes"]))

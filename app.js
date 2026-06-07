@@ -1258,10 +1258,56 @@ document.querySelectorAll("[data-question]").forEach(button => {
   });
 });
 
+async function _dangerousAction({ endpoint, actionLabel, warning }) {
+  const companyName = (account && account.company) ? account.company : "";
+  if (!companyName) {
+    alert("当前账号未绑定企业名称，无法执行此操作。");
+    return null;
+  }
+  const confirmation = window.prompt(
+    warning + "\n\n操作不可恢复。请输入当前企业名称以确认：\n\n" + companyName
+  );
+  if (confirmation === null) return null;
+  if (confirmation.trim() !== companyName) {
+    alert("输入的企业名称不匹配，操作已取消。");
+    return null;
+  }
+  if (!window.confirm("最后确认：" + actionLabel + "\n\n点击确定执行，取消则放弃。")) return null;
+  try {
+    const payload = await api(endpoint, {
+      method: "POST",
+      body: JSON.stringify({ confirmation: confirmation })
+    });
+    return payload;
+  } catch (err) {
+    alert("操作失败：" + (err.message || err));
+    return null;
+  }
+}
+
 document.querySelector("#resetDemo").addEventListener("click", async () => {
-  const payload = await api("/api/reset", { method: "POST", body: "{}" });
+  const payload = await _dangerousAction({
+    endpoint: "/api/reset",
+    actionLabel: "恢复示例数据",
+    warning: "即将清空当前企业的全部业务数据并写入 12 条示例需求 + 5 个示例求职者。"
+  });
+  if (!payload) return;
   data = payload.data;
   renderAll();
+  alert("示例数据已恢复。");
+});
+
+const _clearBtn = document.querySelector("#clearTenantData");
+if (_clearBtn) _clearBtn.addEventListener("click", async () => {
+  const payload = await _dangerousAction({
+    endpoint: "/api/clear-data",
+    actionLabel: "彻底清空当前企业的全部业务数据",
+    warning: "即将清空：企业需求、求职者、招聘流程、人员分派、知识库、AI 对话历史。\n\n此操作不可恢复！"
+  });
+  if (!payload) return;
+  data = payload.data;
+  renderAll();
+  alert("当前企业的全部业务数据已清空。");
 });
 
 document.querySelector("#rebuildKnowledge").addEventListener("click", async () => {

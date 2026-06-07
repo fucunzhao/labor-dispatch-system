@@ -27,7 +27,7 @@ from routes_business import (
     handle_post_assign_manual, handle_delete_assignment,
     handle_post_knowledge_save, handle_post_knowledge_delete,
     handle_post_knowledge_batch_delete, handle_post_knowledge_batch_update,
-    handle_post_knowledge_rebuild, handle_chat, handle_reset,
+    handle_post_knowledge_rebuild, handle_chat, handle_reset, handle_clear_data,
     insert_demand,
 )
 from fuzzy import parse_fuzzy_workers, parse_fuzzy_demands, extract_uploaded_text, extract_xlsx_text, parse_xlsx_demands, parse_xlsx_workers
@@ -126,7 +126,9 @@ class Handler(SimpleHTTPRequestHandler):
         elif path == "/api/chat":
             handle_chat(self, account, self.read_json())
         elif path == "/api/reset":
-            handle_reset(self, account)
+            handle_reset(self, account, self.read_json())
+        elif path == "/api/clear-data":
+            handle_clear_data(self, account, self.read_json())
         else:
             self.send_json({"ok": False, "error": "未知接口"}, status=404)
 

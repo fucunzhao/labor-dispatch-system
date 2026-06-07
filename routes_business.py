@@ -7,7 +7,7 @@ from knowledge import (
     batch_update_knowledge_entries, sync_knowledge_entries,
     knowledge_scope_clause,
 )
-from data import get_payload, reset_seed_data, mask_phone
+from data import get_payload, reset_seed_data, clear_tenant_data, mask_phone
 from fuzzy import (
     parse_fuzzy_demands, parse_fuzzy_workers,
     extract_uploaded_text, extract_xlsx_text,
@@ -493,10 +493,49 @@ def handle_delete_assignment(handler, account, body):
     handler.send_json({"ok": True, "data": get_payload(account)})
 
 
-def handle_reset(handler, account):
+def _require_company_confirmation(handler, account, body, action_label):
+    """要求调用方在 body 中提供 confirmation 字段，值必须严格等于自己的企业名称。"""
+    expected = (account.get("company") or "").strip()
+    given = (body.get("confirmation") or "").strip() if isinstance(body, dict) else ""
+    if not expected:
+        handler.send_json({"ok": False, "error": "当前账号未绑定企业名称，无法操作"}, status=400)
+        return False
+    if given != expected:
+        handler.send_json({
+            "ok": False,
+            "error": f"确认失败：请准确输入企业名称「{expected}」以确认{action_label}。"
+        }, status=400)
+        return False
+    return True
+
+
+def handle_reset(handler, account, body=None):
+    if not account:
+        handler.send_json({"ok": False, "error": "请先登录"}, status=401)
+        return
     require_login(account)
     if not check_role(account, "owner"):
         handler.send_json({"ok": False, "error": "只有老板/管理员可以恢复示例数据"}, status=403)
         return
+    if not _require_company_confirmation(handler, account, body or {}, "恢复示例数据（会先清空当前所有数据再写入示例）"):
+        return
     reset_seed_data(account)
+    handler.send_json({"ok": True, "data": get_payload(account)})
+
+
+def handle_clear_data(handler, account, body):
+    if not account:
+        handler.send_json({"ok": False, "error": "请先登录"}, status=401)
+        return
+    require_login(account)
+    if not check_role(account, "owner"):
+        handler.send_json({"ok": False, "error": "只有老板/管理员可以清空企业数据"}, status=403)
+        return
+    if not _require_company_confirmation(handler, account, body or {}, "彻底清空当前企业的全部业务数据（不可恢复）"):
+        return
+    try:
+        clear_tenant_data(account)
+    except PermissionError as exc:
+        handler.send_json({"ok": False, "error": str(exc)}, status=403)
+        return
     handler.send_json({"ok": True, "data": get_payload(account)})
