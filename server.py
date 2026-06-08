@@ -19,7 +19,7 @@ from routes_accounts import (
 from routes_business import (
     handle_get_data, handle_get_pipeline, handle_get_pipeline_list,
     handle_get_pipeline_events,
-    handle_post_demands, handle_post_workers,
+    handle_post_demands, handle_post_demand_status, handle_post_workers,
     handle_post_fuzzy_parse, handle_post_fuzzy_import,
     handle_post_pipeline_assign, handle_post_pipeline_status,
     handle_post_pipeline_note,
@@ -93,6 +93,8 @@ class Handler(SimpleHTTPRequestHandler):
             handle_profile_update(self, account, self.read_json())
         elif path == "/api/demands":
             handle_post_demands(self, account, self.read_json())
+        elif path == "/api/demands/status":
+            handle_post_demand_status(self, account, self.read_json())
         elif path == "/api/workers":
             handle_post_workers(self, account, self.read_json())
         elif path == "/api/fuzzy/parse":

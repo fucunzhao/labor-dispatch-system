@@ -969,6 +969,7 @@ els.yearSelect.addEventListener("change", renderCalendar);
 els.companyFilter.addEventListener("change", renderCalendar);
 els.typeFilter.addEventListener("change", renderCalendar);
 els.demandSearch.addEventListener("input", renderDemandTable);
+document.querySelector("#demandShowClosed")?.addEventListener("change", renderDemandTable);
 els.workerSearch.addEventListener("input", renderWorkers);
 els.knowledgeSearch.addEventListener("input", renderKnowledgeBase);
 
@@ -1562,24 +1563,61 @@ function togglePipelineView() {
 
 async function updatePipelineStatus(pipelineId, newStatus) {
   let reason = "";
-  // 终态必填原因
-  if (STATUS_REASON_REQUIRED.has(newStatus)) {
-    const prompt_text = STATUS_REASON_PROMPT[newStatus] || "请填写原因";
-    const v = window.prompt(`推进到【${STATUS_NAMES[newStatus]}】\n\n${prompt_text}：`);
-    if (v === null) return;  // 用户取消
-    reason = (v || "").trim();
-    if (!reason) {
-      alert("必须填写原因才能推进到该状态。");
+  let target_demand_id = 0;
+
+  // recommended_other 特殊处理：要选目标需求 + 填理由
+  if (newStatus === "recommended_other") {
+    // 列出当前租户的所有 active 且未满员的 demand
+    const currentP = pipelineData.find(x => x.id === pipelineId);
+    const currentDemandId = currentP ? currentP.demand_id : 0;
+    const candidates = (data.demands || []).filter(d => {
+      const s = d.status || "active";
+      if (s !== "active") return false;
+      if (d.id === currentDemandId) return false;
+      const remain = Math.max(Number(d.headcount) - Number(d.signed || 0), 0);
+      return remain > 0;
+    });
+    if (!candidates.length) {
+      alert("当前没有其他可推荐的活跃需求（要求：状态 active 且未满员）。");
       return;
     }
+    const listText = candidates.map((d, i) => `${i + 1}. ${d.company} · ${d.role}（${d.location}，剩 ${Math.max(d.headcount - (d.signed||0), 0)} 人）`).join("\n");
+    const pick = window.prompt(`【推荐到其他岗位】\n\n请输入目标需求编号（1-${candidates.length}）：\n\n${listText}`);
+    if (pick === null) return;
+    const idx = parseInt((pick || "").trim(), 10) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= candidates.length) {
+      alert("无效编号，操作取消。");
+      return;
+    }
+    target_demand_id = candidates[idx].id;
+    const reasonInput = window.prompt(`【推荐到其他岗位】\n\n目标：${candidates[idx].company} · ${candidates[idx].role}\n\n请填写推荐原因（例如：更适合 XX 厂坐班）：`);
+    if (reasonInput === null) return;
+    reason = (reasonInput || "").trim();
+    if (!reason) { alert("必须填写推荐原因。"); return; }
   }
+  // 其他终态：只要原因
+  else if (STATUS_REASON_REQUIRED.has(newStatus)) {
+    const prompt_text = STATUS_REASON_PROMPT[newStatus] || "请填写原因";
+    const v = window.prompt(`推进到【${STATUS_NAMES[newStatus]}】\n\n${prompt_text}：`);
+    if (v === null) return;
+    reason = (v || "").trim();
+    if (!reason) { alert("必须填写原因才能推进到该状态。"); return; }
+  }
+
   try {
+    const body = { pipeline_id: pipelineId, status: newStatus, reason: reason };
+    if (target_demand_id) body.target_demand_id = target_demand_id;
     const resp = await api("/api/pipeline/status", {
       method: "POST",
-      body: JSON.stringify({ pipeline_id: pipelineId, status: newStatus, reason: reason })
+      body: JSON.stringify(body)
     });
     if (resp.ok) {
+      if (resp.new_pipeline_id) {
+        alert(`已转介，新流程 #${resp.new_pipeline_id} 已创建。`);
+      }
       loadPipelines();
+      // 也刷新 demands 视图，让 signed 数字更新
+      await loadData();
     } else {
       alert(resp.error || "更新失败");
     }
