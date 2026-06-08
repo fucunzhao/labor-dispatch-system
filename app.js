@@ -356,6 +356,131 @@ function renderDashboard() {
   });
   tasks.push(`<article class="item"><div class="item-top"><strong>本地知识库</strong>${tag(`${activeCompanies} 家企业`)}</div><div class="item-meta"><span>企业规则、岗位排期和推荐解释已进入后台数据库。</span></div></article>`);
   els.taskList.innerHTML = tasks.join("");
+  renderRolePanel();
+}
+
+async function renderRolePanel() {
+  const container = document.querySelector("#rolePanel");
+  if (!container) return;
+  if (!account) {
+    container.innerHTML = "";
+    return;
+  }
+  container.innerHTML = `<p class="item-meta" style="padding:12px">正在加载个性化面板…</p>`;
+  try {
+    const resp = await api("/api/dashboard");
+    if (!resp.ok) { container.innerHTML = ""; return; }
+    const d = resp.dashboard;
+    const role = d.role;
+    let html = "";
+
+    // —— 所有角色都看到的"漏斗" ——
+    const f = d.funnel || {};
+    const totals = d.totals || {};
+    const funnelStages = [
+      ["assigned", "已分配", "#0f7a68"],
+      ["contacted", "已联系", "#16804f"],
+      ["interviewed", "已面试", "#b76b12"],
+      ["onboarded", "已入职", "#0b5d50"],
+      ["stationed", "在岗", "#0f7a68"],
+    ];
+    const terminalStages = [
+      ["rejected", "未通过", "#b33434"],
+      ["no_show", "未到场", "#888"],
+      ["recommended_other", "推荐其他", "#888"],
+      ["departed", "已离职", "#b33434"],
+    ];
+    const maxF = Math.max(...funnelStages.map(s => f[s[0]] || 0), 1);
+    html += `<section class="panel" style="margin-bottom:16px">
+      <div class="panel-head"><h2>招聘漏斗</h2>
+        <span>入职率 <strong style="color:#0f7a68">${totals.onboard_rate || 0}%</strong> · 未通过率 ${totals.rejection_rate || 0}% · 未到场率 ${totals.no_show_rate || 0}%</span>
+      </div>
+      <div style="display:flex;gap:8px;padding:16px;align-items:flex-end;height:120px">
+        ${funnelStages.map(([k, label, color]) => {
+          const n = f[k] || 0;
+          const pct = Math.max(n / maxF * 100, 4);
+          return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px">
+            <strong style="font-size:18px">${n}</strong>
+            <div style="width:100%;background:${color};height:${pct}%;border-radius:4px 4px 0 0;min-height:4px"></div>
+            <small style="color:var(--muted)">${label}</small>
+          </div>`;
+        }).join("")}
+      </div>
+      <div style="padding:8px 16px;display:flex;gap:16px;flex-wrap:wrap;border-top:1px solid var(--line)">
+        ${terminalStages.map(([k, label, color]) => `<small style="color:${color}">${label}: <strong>${f[k] || 0}</strong></small>`).join("")}
+      </div>
+    </section>`;
+
+    // —— 角色特定 ——
+    if (role === "owner") {
+      const kpi = d.kpi || {};
+      const team = d.team_load || [];
+      html += `<section class="panel" style="margin-bottom:16px">
+        <div class="panel-head"><h2>团队工作量</h2>
+          <span>共 ${kpi.total_accounts || 0} 人 · ${kpi.total_demands || 0} 个 active 需求 · ${kpi.total_workers || 0} 个求职者</span>
+        </div>
+        ${team.length ? `<div class="table-wrap"><table>
+          <thead><tr><th>姓名</th><th>角色</th><th>对接企业</th><th>负责求职者</th><th>活跃流程</th></tr></thead>
+          <tbody>${team.map(m => `<tr>
+            <td><strong>${h(m.name)}</strong></td>
+            <td>${tag({sales:"业务运营专员",dispatcher:"招聘专员",service:"客服人员"}[m.role] || m.role)}</td>
+            <td>${m.demand_count}</td>
+            <td>${m.worker_count}</td>
+            <td>${m.active_pipeline_count}</td>
+          </tr>`).join("")}</tbody></table></div>` : '<p class="item-meta" style="padding:16px">还没有团队成员账号</p>'}
+      </section>`;
+    }
+    else if (role === "sales") {
+      const myDemands = d.my_demands || [];
+      html += `<section class="panel" style="margin-bottom:16px">
+        <div class="panel-head"><h2>我对接的企业需求</h2><span>共 ${myDemands.length} 条</span></div>
+        ${myDemands.length ? `<div class="table-wrap"><table>
+          <thead><tr><th>企业 · 岗位</th><th>地点</th><th>需求人数</th><th>缺口</th><th>状态</th><th>活跃流程</th></tr></thead>
+          <tbody>${myDemands.map(d2 => `<tr ${d2.status==='closed' ? 'style="opacity:0.5"' : ''}>
+            <td><strong>${h(d2.company)}</strong> · ${h(d2.role)}</td>
+            <td>${h(d2.location)}</td>
+            <td>${d2.headcount}</td>
+            <td>${tag(d2.gap + " 人", d2.gap > 5 ? "danger" : "warn")}</td>
+            <td>${d2.status === 'closed' ? tag('已关闭','danger') : (d2.gap === 0 ? tag('已满员') : tag('招聘中','warn'))}</td>
+            <td>${d2.active_pipeline_count} 个</td>
+          </tr>`).join("")}</tbody></table></div>` : '<p class="item-meta" style="padding:16px">老板还没分配企业给你。可以让老板在"人员分派"页面把企业需求分配给你。</p>'}
+      </section>`;
+    }
+    else if (role === "dispatcher") {
+      const myWorkers = d.my_workers || [];
+      const todo = d.todo_pipelines || [];
+      const STATUS_NAMES_LOCAL = {
+        assigned: "已分配", contacted: "已联系", interviewed: "已面试",
+        onboarded: "已入职", stationed: "在岗"
+      };
+      html += `<section class="panel" style="margin-bottom:16px">
+        <div class="panel-head"><h2>我负责的求职者</h2><span>共 ${myWorkers.length} 人 · ${myWorkers.filter(x=>x.current_status).length} 人有活跃流程</span></div>
+        ${myWorkers.length ? `<div class="table-wrap"><table>
+          <thead><tr><th>姓名 · 电话</th><th>地点</th><th>到岗时间</th><th>当前流程</th></tr></thead>
+          <tbody>${myWorkers.map(w => `<tr>
+            <td><strong>${h(w.name)}</strong><br><small style="color:var(--muted)">${h(w.phone || '')}</small></td>
+            <td>${h(w.location)}</td>
+            <td>${h(w.available || '-')}</td>
+            <td>${w.current_status ? `${h(w.current_company)} · ${h(w.current_role)}<br>${tag(STATUS_NAMES_LOCAL[w.current_status] || w.current_status, 'warn')}` : '<small style="color:var(--muted)">无活跃流程</small>'}</td>
+          </tr>`).join("")}</tbody></table></div>` : '<p class="item-meta" style="padding:16px">老板还没分配求职者给你。</p>'}
+      </section>
+      <section class="panel" style="margin-bottom:16px">
+        <div class="panel-head"><h2>待推进的流程</h2><span>${todo.length} 条等你跟进</span></div>
+        ${todo.length ? `<div class="table-wrap"><table>
+          <thead><tr><th>候选人</th><th>对应岗位</th><th>当前状态</th><th>更新时间</th></tr></thead>
+          <tbody>${todo.map(t => `<tr>
+            <td><strong>${h(t.worker_name)}</strong></td>
+            <td>${h(t.demand_company)} · ${h(t.demand_role)}</td>
+            <td>${tag(STATUS_NAMES_LOCAL[t.status] || t.status, 'warn')}</td>
+            <td><small>${(t.updated_at || '').slice(0,16)}</small></td>
+          </tr>`).join("")}</tbody></table></div>` : '<p class="item-meta" style="padding:16px">暂无待推进流程</p>'}
+      </section>`;
+    }
+
+    container.innerHTML = html;
+  } catch (e) {
+    container.innerHTML = `<p class="item-meta" style="padding:12px;color:var(--danger)">个性化面板加载失败：${escapeHtml(e.message || String(e))}</p>`;
+  }
 }
 
 function renderCalendar() {

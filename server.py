@@ -17,7 +17,8 @@ from routes_accounts import (
     handle_profile_update,
 )
 from routes_business import (
-    handle_get_data, handle_get_pipeline, handle_get_pipeline_list,
+    handle_get_data, handle_get_dashboard,
+    handle_get_pipeline, handle_get_pipeline_list,
     handle_get_pipeline_events,
     handle_post_demands, handle_post_demand_status, handle_post_workers,
     handle_post_fuzzy_parse, handle_post_fuzzy_import,
@@ -54,6 +55,8 @@ class Handler(SimpleHTTPRequestHandler):
 
         if path == "/api/data":
             handle_get_data(self, account)
+        elif path == "/api/dashboard":
+            handle_get_dashboard(self, account)
         elif path == "/api/accounts/list":
             handle_accounts_list(self, account)
         elif path == "/api/pipeline":

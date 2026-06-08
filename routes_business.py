@@ -603,6 +603,161 @@ def handle_chat(handler, account, body):
 
 
 # ── 人员分派 ────────────────────────────────────
+def handle_get_dashboard(handler, account):
+    """按角色返回个性化仪表盘数据。owner 看全局，sales 看自己的企业，dispatcher 看自己的候选人。"""
+    if not account:
+        handler.send_json({"ok": False, "error": "请先登录"}, status=401)
+        return
+    company_key = account.get("companyKey", "")
+    if not company_key:
+        handler.send_json({"ok": False, "error": "账号未绑定企业"}, status=400)
+        return
+
+    my_id = int(account["id"])
+    role = account.get("role", "")
+    result = {"role": role, "name": account.get("name", "")}
+
+    with connect() as conn:
+        # ── 通用部分：漏斗（所有角色都看） ──
+        funnel_rows = conn.execute(
+            "SELECT status, COUNT(*) AS n FROM recruitment_pipeline WHERE company_key = ? GROUP BY status",
+            (company_key,)
+        ).fetchall()
+        funnel = {row["status"]: row["n"] for row in funnel_rows}
+        # 保证 6 个主要状态都有 key
+        for s in ("assigned", "contacted", "interviewed", "onboarded", "stationed",
+                  "rejected", "no_show", "recommended_other", "departed"):
+            funnel.setdefault(s, 0)
+        result["funnel"] = funnel
+        # 计算转化率
+        active_total = sum(funnel[s] for s in ("assigned", "contacted", "interviewed", "onboarded", "stationed"))
+        ended_total = sum(funnel[s] for s in ("rejected", "no_show", "recommended_other", "departed"))
+        onboarded_total = funnel["onboarded"] + funnel["stationed"]  # 到岗或在岗都算成功
+        result["totals"] = {
+            "active": active_total,
+            "ended": ended_total,
+            "onboarded": onboarded_total,
+            "rejection_rate": round(funnel["rejected"] / max(active_total + ended_total, 1) * 100, 1),
+            "no_show_rate": round(funnel["no_show"] / max(active_total + ended_total, 1) * 100, 1),
+            "onboard_rate": round(onboarded_total / max(active_total + ended_total, 1) * 100, 1),
+        }
+
+        # ── 角色定制部分 ──
+        if role == "owner":
+            # 团队工作量：每个非 owner 账号手上的活儿
+            team_rows = conn.execute(
+                """SELECT a.id, a.name, a.role,
+                        (SELECT COUNT(*) FROM assignments WHERE company_key = ? AND assigned_to = a.id AND entity_type = 'demand') AS demand_cnt,
+                        (SELECT COUNT(*) FROM assignments WHERE company_key = ? AND assigned_to = a.id AND entity_type = 'worker') AS worker_cnt,
+                        (SELECT COUNT(*) FROM recruitment_pipeline rp
+                          WHERE rp.company_key = ? AND rp.assigned_by = a.id
+                          AND rp.status NOT IN ('rejected','no_show','recommended_other','departed')) AS active_pipeline_cnt
+                   FROM accounts a
+                   WHERE a.company_key = ? AND a.role != 'owner'
+                   ORDER BY a.id""",
+                (company_key, company_key, company_key, company_key)
+            ).fetchall()
+            result["team_load"] = [
+                {"id": r["id"], "name": r["name"], "role": r["role"],
+                 "demand_count": r["demand_cnt"], "worker_count": r["worker_cnt"],
+                 "active_pipeline_count": r["active_pipeline_cnt"]}
+                for r in team_rows
+            ]
+            # 全局 KPI
+            result["kpi"] = {
+                "total_demands": conn.execute(
+                    "SELECT COUNT(*) FROM demands WHERE company_key = ? AND status = 'active'", (company_key,)
+                ).fetchone()[0],
+                "total_workers": conn.execute(
+                    "SELECT COUNT(*) FROM workers WHERE company_key = ?", (company_key,)
+                ).fetchone()[0],
+                "total_accounts": conn.execute(
+                    "SELECT COUNT(*) FROM accounts WHERE company_key = ?", (company_key,)
+                ).fetchone()[0],
+            }
+
+        elif role == "sales":
+            # 我对接的企业需求（through assignments）
+            my_demand_rows = conn.execute(
+                """SELECT d.id, d.company, d.role, d.location, d.headcount, d.signed, d.status, d.salary, d.start_date
+                   FROM assignments a
+                   JOIN demands d ON a.entity_id = d.id AND d.company_key = a.company_key
+                   WHERE a.company_key = ? AND a.assigned_to = ? AND a.entity_type = 'demand'
+                   ORDER BY d.id DESC""",
+                (company_key, my_id)
+            ).fetchall()
+            my_demands = []
+            for d in my_demand_rows:
+                # 每条 demand 下的活跃 pipeline 数
+                active = conn.execute(
+                    """SELECT COUNT(*) FROM recruitment_pipeline
+                       WHERE company_key = ? AND demand_id = ?
+                       AND status NOT IN ('rejected','no_show','recommended_other','departed')""",
+                    (company_key, d["id"])
+                ).fetchone()[0]
+                gap = max(int(d["headcount"]) - int(d["signed"] or 0), 0)
+                my_demands.append({
+                    "id": d["id"], "company": d["company"], "role": d["role"],
+                    "location": d["location"], "headcount": d["headcount"],
+                    "signed": d["signed"], "gap": gap, "status": d["status"] or "active",
+                    "salary": d["salary"], "start_date": d["start_date"],
+                    "active_pipeline_count": active,
+                })
+            result["my_demands"] = my_demands
+
+        elif role == "dispatcher":
+            # 我跟进的候选人 + 当前流程状态
+            my_worker_rows = conn.execute(
+                """SELECT w.id, w.name, w.phone, w.location, w.available
+                   FROM assignments a
+                   JOIN workers w ON a.entity_id = w.id AND w.company_key = a.company_key
+                   WHERE a.company_key = ? AND a.assigned_to = ? AND a.entity_type = 'worker'
+                   ORDER BY w.id DESC""",
+                (company_key, my_id)
+            ).fetchall()
+            my_workers = []
+            for w in my_worker_rows:
+                # 当前活跃 pipeline（同一求职者最多一条活跃）
+                cur_pl = conn.execute(
+                    """SELECT rp.id, rp.status, d.company, d.role
+                       FROM recruitment_pipeline rp
+                       LEFT JOIN demands d ON rp.demand_id = d.id
+                       WHERE rp.company_key = ? AND rp.worker_id = ?
+                       AND rp.status NOT IN ('rejected','no_show','recommended_other','departed')
+                       LIMIT 1""",
+                    (company_key, w["id"])
+                ).fetchone()
+                my_workers.append({
+                    "id": w["id"], "name": w["name"],
+                    "phone": w["phone"][:3] + "****" + w["phone"][-4:] if w["phone"] and len(w["phone"])>=7 else w["phone"],
+                    "location": w["location"], "available": w["available"],
+                    "current_pipeline_id": cur_pl["id"] if cur_pl else 0,
+                    "current_status": cur_pl["status"] if cur_pl else "",
+                    "current_company": cur_pl["company"] if cur_pl else "",
+                    "current_role": cur_pl["role"] if cur_pl else "",
+                })
+            result["my_workers"] = my_workers
+            # 待办：分配给我的 worker 的活跃 pipeline（最需要我推进的）
+            todo_rows = conn.execute(
+                """SELECT rp.id, rp.status, rp.updated_at,
+                          w.name AS worker_name, d.company AS demand_company, d.role AS demand_role
+                   FROM recruitment_pipeline rp
+                   LEFT JOIN workers w ON rp.worker_id = w.id
+                   LEFT JOIN demands d ON rp.demand_id = d.id
+                   WHERE rp.company_key = ?
+                   AND rp.worker_id IN (
+                       SELECT entity_id FROM assignments
+                       WHERE company_key = ? AND assigned_to = ? AND entity_type = 'worker'
+                   )
+                   AND rp.status NOT IN ('rejected','no_show','recommended_other','departed')
+                   ORDER BY rp.updated_at DESC LIMIT 20""",
+                (company_key, company_key, my_id)
+            ).fetchall()
+            result["todo_pipelines"] = [dict(r) for r in todo_rows]
+
+    handler.send_json({"ok": True, "dashboard": result})
+
+
 def handle_get_assignments(handler, account):
     if not check_role(account, "owner"):
         handler.send_json({"ok": False, "error": "仅老板可管理分派"}, status=403)
