@@ -119,6 +119,7 @@ def handle_get_pipeline_list(handler, account):
             "contacted_at": r["contacted_at"] or "", "interviewed_at": r["interviewed_at"] or "",
             "onboarded_at": r["onboarded_at"] or "", "stationed_at": r["stationed_at"] or "",
             "departed_at": r["departed_at"] or "", "notes": r["notes"] or "",
+            "outcome_reason": r.get("outcome_reason", "") or "",
             "interview_invite_sent": r["interview_invite_sent"], "worker_accepted": r["worker_accepted"],
             "phone_revealed": r["phone_revealed"], "created_at": r["created_at"], "updated_at": r["updated_at"],
             "demand_company": r.get("demand_company", ""), "demand_role": r.get("demand_role", ""),
@@ -143,6 +144,38 @@ def handle_post_demands(handler, account, body):
         demand_id = insert_demand(conn, body, account)
         sync_knowledge_entries(conn, company_key=account["companyKey"])
     handler.send_json({"ok": True, "id": demand_id, "data": get_payload(account)})
+
+
+def handle_post_demand_status(handler, account, body):
+    """切换 demand 的 status (active <-> closed)"""
+    if not check_role(account, "owner", "sales"):
+        handler.send_json({"ok": False, "error": "仅老板/业务运营专员可关闭或重开需求"}, status=403)
+        return
+    demand_id = int(body.get("demand_id") or 0)
+    new_status = (body.get("status") or "").strip()
+    if new_status not in ("active", "closed"):
+        handler.send_json({"ok": False, "error": "status 必须是 active 或 closed"}, status=400)
+        return
+    if not demand_id:
+        handler.send_json({"ok": False, "error": "缺少 demand_id"}, status=400)
+        return
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT company, role, status FROM demands WHERE id = ? AND company_key = ?",
+            (demand_id, account["companyKey"])
+        ).fetchone()
+        if not row:
+            handler.send_json({"ok": False, "error": "需求不存在或无权访问"}, status=404)
+            return
+        if (row["status"] or "active") == new_status:
+            handler.send_json({"ok": True, "msg": f"需求已经是 {new_status} 状态，无需修改"})
+            return
+        conn.execute(
+            "UPDATE demands SET status = ? WHERE id = ? AND company_key = ?",
+            (new_status, demand_id, account["companyKey"])
+        )
+    label = {"active": "重新打开", "closed": "关闭"}[new_status]
+    handler.send_json({"ok": True, "msg": f"已{label}需求【{row['company']} · {row['role']}】", "data": get_payload(account)})
 
 
 def handle_post_workers(handler, account, body):
@@ -192,11 +225,14 @@ def handle_post_pipeline_assign(handler, account, body):
     with connect() as conn:
         # 校验 demand / worker 都属于当前租户，防越权 + 防空指针
         demand_row = conn.execute(
-            "SELECT company, role FROM demands WHERE id = ? AND company_key = ?",
+            "SELECT company, role, status FROM demands WHERE id = ? AND company_key = ?",
             (demand_id, company_key)
         ).fetchone()
         if not demand_row:
             handler.send_json({"ok": False, "error": "企业需求不存在或无权访问"}, status=404)
+            return
+        if (demand_row["status"] or "active") != "active":
+            handler.send_json({"ok": False, "error": f"需求【{demand_row['company']} · {demand_row['role']}】已关闭，无法分配新候选人"}, status=400)
             return
         worker_row = conn.execute(
             "SELECT name FROM workers WHERE id = ? AND company_key = ?",
@@ -235,45 +271,208 @@ def handle_post_pipeline_assign(handler, account, body):
     handler.send_json({"ok": True})
 
 
+# ── 招聘流程状态机 ────────────────────────────────
+# 合法状态：
+#   assigned    已分配
+#   contacted   已联系
+#   interviewed 已面试
+#   onboarded   已入职
+#   stationed   在岗
+# 终态（不可再推进）：
+#   rejected           面试未通过
+#   no_show            未到场
+#   recommended_other  推荐到其他岗位
+#   departed           已离职
+PIPELINE_STATUS_LABELS = {
+    "assigned": "已分配", "contacted": "已联系", "interviewed": "已面试",
+    "onboarded": "已入职", "stationed": "在岗",
+    "rejected": "面试未通过", "no_show": "未到场",
+    "recommended_other": "推荐其他岗位", "departed": "已离职",
+}
+# 合法状态跳转表
+PIPELINE_TRANSITIONS = {
+    "assigned":   {"contacted", "no_show", "recommended_other"},
+    "contacted":  {"interviewed", "no_show", "recommended_other"},
+    "interviewed": {"onboarded", "rejected", "no_show", "recommended_other"},
+    "onboarded":  {"stationed", "departed"},
+    "stationed":  {"departed"},
+    # 终态没有出边
+    "rejected": set(), "no_show": set(),
+    "recommended_other": set(), "departed": set(),
+}
+PIPELINE_TERMINAL_STATES = {"rejected", "no_show", "recommended_other", "departed"}
+# 进入这些状态时必须填原因
+PIPELINE_REASON_REQUIRED = {"rejected", "no_show", "recommended_other", "departed"}
+# 进入哪个状态时，对应时间戳列要更新
+PIPELINE_TIMESTAMP_COL = {
+    "contacted": "contacted_at", "interviewed": "interviewed_at",
+    "onboarded": "onboarded_at", "stationed": "stationed_at",
+    "departed": "departed_at",
+}
+
+
 def handle_post_pipeline_status(handler, account, body):
     if not check_role(account, "owner", "dispatcher"):
         handler.send_json({"ok": False, "error": "仅老板/招聘专员可推进招聘流程"}, status=403)
         return
     pipeline_id = int(body.get("pipeline_id") or 0)
-    new_status = body.get("status", "")
-    note = body.get("note", "").strip()  # C方案：支持手动备注
-    valid_statuses = {"assigned", "contacted", "interviewed", "onboarded", "stationed", "departed"}
-    if not pipeline_id or new_status not in valid_statuses:
+    new_status = (body.get("status") or "").strip()
+    note = (body.get("note") or "").strip()
+    reason = (body.get("reason") or "").strip()  # 终态必填
+    if not pipeline_id or new_status not in PIPELINE_STATUS_LABELS:
         handler.send_json({"ok": False, "error": "参数无效"}, status=400)
         return
-    col_map = {"contacted": "contacted_at", "interviewed": "interviewed_at", "onboarded": "onboarded_at", "stationed": "stationed_at", "departed": "departed_at"}
-    if new_status in col_map:
-        with connect() as conn:
-            row = conn.execute(
-                "SELECT status FROM recruitment_pipeline WHERE id = ? AND company_key = ?",
+    if new_status in PIPELINE_REASON_REQUIRED and not reason:
+        handler.send_json({
+            "ok": False,
+            "error": f"推进到【{PIPELINE_STATUS_LABELS[new_status]}】需要填写原因。"
+        }, status=400)
+        return
+
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT status FROM recruitment_pipeline WHERE id = ? AND company_key = ?",
+            (pipeline_id, account["companyKey"])
+        ).fetchone()
+        if not row:
+            handler.send_json({"ok": False, "error": "流程不存在"}, status=404)
+            return
+        old_status = row["status"]
+        # 校验合法跳转
+        allowed = PIPELINE_TRANSITIONS.get(old_status, set())
+        if old_status in PIPELINE_TERMINAL_STATES:
+            handler.send_json({
+                "ok": False,
+                "error": f"流程已结束（{PIPELINE_STATUS_LABELS.get(old_status, old_status)}），不能再推进。"
+            }, status=400)
+            return
+        if new_status not in allowed:
+            allowed_labels = "、".join(PIPELINE_STATUS_LABELS.get(s, s) for s in allowed) or "（无）"
+            handler.send_json({
+                "ok": False,
+                "error": f"从【{PIPELINE_STATUS_LABELS.get(old_status, old_status)}】不能直接推进到【{PIPELINE_STATUS_LABELS[new_status]}】。当前允许：{allowed_labels}"
+            }, status=400)
+            return
+
+        # —— recommended_other 特殊处理：需要 target_demand_id，原子地把候选人转到新岗位 ——
+        target_demand_id = 0
+        new_pipeline_id = 0
+        if new_status == "recommended_other":
+            target_demand_id = int(body.get("target_demand_id") or 0)
+            if not target_demand_id:
+                handler.send_json({"ok": False, "error": "推荐其他岗位需要选择目标企业需求（target_demand_id）"}, status=400)
+                return
+            # 取当前 pipeline 的 worker_id 和原 demand_id（用于校验和递减原 signed）
+            cur_info = conn.execute(
+                "SELECT worker_id, demand_id FROM recruitment_pipeline WHERE id = ? AND company_key = ?",
                 (pipeline_id, account["companyKey"])
             ).fetchone()
-            if not row:
-                handler.send_json({"ok": False, "error": "流程不存在"}, status=404)
+            if cur_info["demand_id"] == target_demand_id:
+                handler.send_json({"ok": False, "error": "目标岗位与当前岗位相同，无需转介"}, status=400)
                 return
-            old_status = row["status"]
+            # 校验目标 demand：同租户、status active、不能是 closed
+            target_demand = conn.execute(
+                "SELECT id, company, role, status FROM demands WHERE id = ? AND company_key = ?",
+                (target_demand_id, account["companyKey"])
+            ).fetchone()
+            if not target_demand:
+                handler.send_json({"ok": False, "error": "目标企业需求不存在或无权访问"}, status=404)
+                return
+            if (target_demand["status"] or "active") != "active":
+                handler.send_json({"ok": False, "error": f"目标需求【{target_demand['company']} · {target_demand['role']}】已关闭，无法转介"}, status=400)
+                return
+            # 校验同一求职者在目标 demand 没有活跃 pipeline
+            conflict = conn.execute(
+                """SELECT id FROM recruitment_pipeline
+                   WHERE worker_id = ? AND demand_id = ? AND company_key = ?
+                   AND status NOT IN ('departed','rejected','no_show','recommended_other')""",
+                (cur_info["worker_id"], target_demand_id, account["companyKey"])
+            ).fetchone()
+            if conflict:
+                handler.send_json({"ok": False, "error": f"该求职者已在目标需求【{target_demand['company']} · {target_demand['role']}】有活跃流程"}, status=409)
+                return
+
+        # 更新 status + 对应时间戳 + outcome_reason + recommended_to_demand_id
+        ts_col = PIPELINE_TIMESTAMP_COL.get(new_status)
+        sets = ["status = ?", "updated_at = datetime('now')"]
+        params = [new_status]
+        if ts_col:
+            sets.append(f"{ts_col} = datetime('now')")
+        if new_status in PIPELINE_TERMINAL_STATES:
+            sets.append("outcome_reason = ?")
+            params.append(reason)
+        if new_status == "recommended_other":
+            sets.append("recommended_to_demand_id = ?")
+            params.append(target_demand_id)
+        params.extend([pipeline_id, account["companyKey"]])
+        conn.execute(
+            f"UPDATE recruitment_pipeline SET {', '.join(sets)} WHERE id = ? AND company_key = ?",
+            params
+        )
+
+        # 进入 recommended_other 时：原 demand.signed -1，新建到目标 demand 的 pipeline
+        if new_status == "recommended_other":
             conn.execute(
-                f"UPDATE recruitment_pipeline SET status = ?, {col_map[new_status]} = datetime('now'), updated_at = datetime('now') WHERE id = ? AND company_key = ?",
-                (new_status, pipeline_id, account["companyKey"])
+                "UPDATE demands SET signed = MAX(signed - 1, 0) WHERE id = ? AND company_key = ?",
+                (cur_info["demand_id"], account["companyKey"])
             )
-            # C方案：自动写入状态变更事件
-            status_label = {"assigned": "已分配", "contacted": "已联系", "interviewed": "已面试", "onboarded": "已入职", "stationed": "已上岗", "departed": "已离职"}
-            content = f"状态从【{status_label.get(old_status, old_status)}】推进到【{status_label.get(new_status, new_status)}】"
-            if note:
-                content += f"。备注：{note}"
+            new_cur = conn.execute(
+                """INSERT INTO recruitment_pipeline
+                   (demand_id, worker_id, company_key, status, assigned_by, created_at, updated_at, notes)
+                   VALUES (?, ?, ?, 'assigned', ?, datetime('now'), datetime('now'), ?)""",
+                (target_demand_id, cur_info["worker_id"], account["companyKey"], account["id"],
+                 f"由 pipeline #{pipeline_id} 转介而来")
+            )
+            new_pipeline_id = new_cur.lastrowid
+            conn.execute(
+                "UPDATE demands SET signed = signed + 1 WHERE id = ? AND company_key = ?",
+                (target_demand_id, account["companyKey"])
+            )
             conn.execute(
                 """INSERT INTO pipeline_events (pipeline_id, company_key, operator_id, operator_name, event_type, from_status, to_status, content)
-                   VALUES (?, ?, ?, ?, 'status_change', ?, ?, ?)""",
-                (pipeline_id, account["companyKey"], account["id"], account.get("name", ""), old_status, new_status, content)
+                   VALUES (?, ?, ?, ?, 'status_change', '', 'assigned', ?)""",
+                (new_pipeline_id, account["companyKey"], account["id"], account.get("name", ""),
+                 f"从 pipeline #{pipeline_id} 转介而来。理由：{reason}")
             )
-        handler.send_json({"ok": True})
-    else:
-        handler.send_json({"ok": False, "error": "无效状态"}, status=400)
+
+        # 写事件日志
+        content = f"状态从【{PIPELINE_STATUS_LABELS.get(old_status, old_status)}】推进到【{PIPELINE_STATUS_LABELS[new_status]}】"
+        if reason:
+            content += f"。原因：{reason}"
+        if note:
+            content += f"。备注：{note}"
+        conn.execute(
+            """INSERT INTO pipeline_events (pipeline_id, company_key, operator_id, operator_name, event_type, from_status, to_status, content)
+               VALUES (?, ?, ?, ?, 'status_change', ?, ?, ?)""",
+            (pipeline_id, account["companyKey"], account["id"], account.get("name", ""), old_status, new_status, content)
+        )
+
+        # 如果是 rejected / no_show 走完了，把求职者画像追加一条历史，反哺知识库
+        if new_status in {"rejected", "no_show", "onboarded", "departed"}:
+            row2 = conn.execute(
+                """SELECT w.id AS wid, w.name AS wname, d.company AS dcompany, d.role AS drole
+                   FROM recruitment_pipeline p
+                   LEFT JOIN workers w ON p.worker_id = w.id
+                   LEFT JOIN demands d ON p.demand_id = d.id
+                   WHERE p.id = ?""",
+                (pipeline_id,)
+            ).fetchone()
+            if row2 and row2["wid"]:
+                outcome_text = {
+                    "rejected": f"曾未通过【{row2['dcompany']} · {row2['drole']}】面试",
+                    "no_show": f"曾约面【{row2['dcompany']} · {row2['drole']}】未到",
+                    "onboarded": f"已入职【{row2['dcompany']} · {row2['drole']}】",
+                    "departed": f"已离职【{row2['dcompany']} · {row2['drole']}】",
+                }[new_status]
+                if reason:
+                    outcome_text += f"，原因：{reason}"
+                # 追加到 worker.note
+                conn.execute(
+                    "UPDATE workers SET note = TRIM(COALESCE(note,'') || char(10) || ?) WHERE id = ? AND company_key = ?",
+                    (f"[历史] {outcome_text}", row2["wid"], account["companyKey"])
+                )
+
+    handler.send_json({"ok": True, "new_pipeline_id": new_pipeline_id if new_status == "recommended_other" else 0})
 
 
 def handle_post_pipeline_note(handler, account, body):

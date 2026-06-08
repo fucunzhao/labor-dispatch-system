@@ -398,26 +398,65 @@ function renderCalendar() {
 
 function renderDemandTable() {
   const keyword = els.demandSearch.value.trim().toLowerCase();
+  const showClosed = document.querySelector("#demandShowClosed")?.checked || false;
   const rows = data.demands.filter(item => {
     const text = `${item.company} ${item.role} ${item.location} ${item.type} ${item.notes}`.toLowerCase();
-    return text.includes(keyword);
+    if (!text.includes(keyword)) return false;
+    const status = item.status || "active";
+    if (!showClosed && status === "closed") return false;
+    return true;
   });
   els.demandTable.innerHTML = rows.map(item => {
     const matches = rankWorkers(item).slice(0, 2);
+    const status = item.status || "active";
+    const isClosed = status === "closed";
+    const isFull = remaining(item) === 0;
+    const rowStyle = isClosed ? 'style="opacity:0.5;background:#f5f5f5"' : '';
+    let statusCell;
+    if (isClosed) {
+      statusCell = tag("已关闭", "danger");
+    } else if (isFull) {
+      statusCell = tag("已满员") + ' <small style="color:#b76b12">建议关闭</small>';
+    } else {
+      statusCell = tag("匹配中", "warn");
+    }
+    const ownerActions = hasRole('demands','write') ? (
+      isClosed
+        ? `<button class="ghost" onclick="toggleDemandStatus(${item.id},'active')" style="font-size:12px;color:#0f7a68">重新打开</button>`
+        : `<button class="ghost" onclick="toggleDemandStatus(${item.id},'closed')" style="font-size:12px;color:#b33434">关闭需求</button>`
+    ) : '';
+    const assignBtn = (!isClosed && hasRole('pipeline','assign'))
+      ? `<button class="ghost" onclick="showAssignDemand(${item.id})" data-write style="font-size:12px" data-perm="pipeline.assign">分配求职者</button>`
+      : '';
     return `
-      <tr>
+      <tr ${rowStyle}>
         <td><strong>${h(item.company)}</strong><br><span class="item-meta">${h(item.location)}</span></td>
         <td>${h(item.role)}<br>${tag(item.type)}</td>
         <td>${h(formatDateRange(item))}</td>
         <td>${h(item.headcount)} 人</td>
         <td>${tag(`${remaining(item)} 人`, remaining(item) > 50 ? "danger" : "warn")}</td>
         <td>${h(item.salary)}</td>
-        <td>${remaining(item) === 0 ? tag("已满员") : tag("匹配中", "warn")}</td>
+        <td>${statusCell}</td>
         <td>${matches.map(match => `<span title="${h(match.reasons.join(' | '))}">${h(match.worker.name)} <strong>${match.score}分</strong><br><span style="font-size:11px;color:#888">${match.reasons.slice(0,2).map(h).join(' · ') || ''}</span></span>`).join("<br>") || "暂无"}</td>
-        <td><button class="ghost" onclick="showAssignDemand(${item.id})" data-write style="font-size:12px" data-perm="pipeline.assign">分配求职者</button></td>
+        <td>${assignBtn} ${ownerActions}</td>
       </tr>
     `;
   }).join("");
+}
+
+async function toggleDemandStatus(demandId, newStatus) {
+  const labelMap = { active: "重新打开", closed: "关闭" };
+  if (!confirm(`确认${labelMap[newStatus]}该需求？\n\n关闭后无法再分配新候选人，已有的活跃流程不受影响；重新打开后可继续分配。`)) return;
+  try {
+    const resp = await api("/api/demands/status", {
+      method: "POST",
+      body: JSON.stringify({ demand_id: demandId, status: newStatus })
+    });
+    if (!resp.ok) { alert(resp.error || "操作失败"); return; }
+    if (resp.data) { data = resp.data; renderAll(); }
+    else { await loadData(); }
+    alert(resp.msg || "已更新");
+  } catch (e) { alert("操作失败：" + e.message); }
 }
 
 function renderWorkers() {
@@ -1388,15 +1427,25 @@ loadData().catch(error => {
 // ── 招聘流程 / Pipeline ────────────────────────────
 const STATUS_NAMES = {
   assigned: "已分配", contacted: "已联系", interviewed: "已面试",
-  onboarded: "已到岗", stationed: "在岗", departed: "已离职"
+  onboarded: "已入职", stationed: "在岗",
+  rejected: "面试未通过", no_show: "未到场",
+  recommended_other: "推荐其他岗位", departed: "已离职"
 };
 const STATUS_TRANSITIONS = {
-  assigned: ["contacted"],
-  contacted: ["interviewed"],
-  interviewed: ["onboarded"],
-  onboarded: ["stationed"],
-  stationed: ["departed"],
-  departed: []
+  assigned:    ["contacted", "no_show", "recommended_other"],
+  contacted:   ["interviewed", "no_show", "recommended_other"],
+  interviewed: ["onboarded", "rejected", "no_show", "recommended_other"],
+  onboarded:   ["stationed", "departed"],
+  stationed:   ["departed"],
+  rejected: [], no_show: [], recommended_other: [], departed: []
+};
+const STATUS_TERMINAL = new Set(["rejected", "no_show", "recommended_other", "departed"]);
+const STATUS_REASON_REQUIRED = new Set(["rejected", "no_show", "recommended_other", "departed"]);
+const STATUS_REASON_PROMPT = {
+  rejected: "面试未通过的原因（例如：经验不足/年龄不符/纹身/面试表现差）",
+  no_show:  "未到场的原因（例如：路途远/已接其他 offer/失联）",
+  recommended_other: "推荐到其他岗位的原因（例如：更适合 XX 厂坐班）",
+  departed: "离职原因（例如：试用期不合适/家中有事/找到新工作）",
 };
 const STATUS_FLOW = ["assigned", "contacted", "interviewed", "onboarded", "stationed", "departed"];
 
@@ -1444,12 +1493,17 @@ function renderPipelineTable() {
       <td><strong>${escapeHtml(p.worker_name)}</strong><br><small style="color:var(--muted)">${escapeHtml(p.worker_phone || '')}</small></td>
       <td><strong>${escapeHtml(p.demand_company)}</strong> — ${escapeHtml(p.demand_role)}<br><small style="color:var(--muted)">${escapeHtml(p.demand_salary || '')}</small></td>
       <td><small>${p.created_at?.slice(0,16) || '-'}</small></td>
-      <td><span class="status-badge status-${p.status}">${statusLabel}</span></td>
+      <td><span class="status-badge status-${p.status}">${statusLabel}</span>${(STATUS_TERMINAL.has(p.status) && p.outcome_reason) ? `<br><small style="color:var(--muted)" title="${escapeHtml(p.outcome_reason)}">原因：${escapeHtml(p.outcome_reason.slice(0,30))}${p.outcome_reason.length>30?'…':''}</small>` : ''}</td>
       <td><small>${p.updated_at?.slice(0,16) || '-'}</small></td>
       <td class="pipeline-actions">
-        ${hasRole('pipeline', 'advance') ? nextStatuses.map(s => `<button class="btn btn-primary" onclick="updatePipelineStatus(${p.id},'${s}')">→ ${STATUS_NAMES[s]}</button>`).join('') : ''}
+        ${hasRole('pipeline', 'advance') ? nextStatuses.map(s => {
+          const isTerm = STATUS_TERMINAL.has(s);
+          const cls = isTerm ? 'btn' : 'btn btn-primary';
+          const style = isTerm ? 'style="color:var(--danger)"' : '';
+          const arrow = isTerm ? '×' : '→';
+          return `<button class="${cls}" ${style} onclick="updatePipelineStatus(${p.id},'${s}')">${arrow} ${STATUS_NAMES[s]}</button>`;
+        }).join('') : ''}
         ${(hasRole('pipeline', 'revert') && canGoBack) ? `<button class="btn" onclick="updatePipelineStatus(${p.id},'${canGoBack}')">← 退回</button>` : ''}
-        ${(hasRole('pipeline', 'revert') && p.status !== 'departed') ? `<button class="btn" onclick="updatePipelineStatus(${p.id},'departed')" style="color:var(--danger)">× 离职</button>` : ''}
         <button class="btn" onclick="showPipelineEvents(${p.id},'${escapeHtml(p.worker_name)} → ${escapeHtml(p.demand_company+' '+p.demand_role)}')" title="查看服务记录">📋 记录</button>
       </td>
     </tr>`;
@@ -1486,9 +1540,14 @@ function renderKanban() {
           📞 ${escapeHtml(p.worker_phone || '')}
         </div>
         <div class="kanban-actions">
-          ${hasRole('pipeline', 'advance') ? nextStatuses.map(s => `<button class="btn btn-primary" onclick="updatePipelineStatus(${p.id},'${s}')">→ ${STATUS_NAMES[s]}</button>`).join('') : ''}
+          ${hasRole('pipeline', 'advance') ? nextStatuses.map(s => {
+            const isTerm = STATUS_TERMINAL.has(s);
+            const cls = isTerm ? 'btn' : 'btn btn-primary';
+            const style = isTerm ? 'style="color:var(--danger)"' : '';
+            const arrow = isTerm ? '×' : '→';
+            return `<button class="${cls}" ${style} onclick="updatePipelineStatus(${p.id},'${s}')">${arrow} ${STATUS_NAMES[s]}</button>`;
+          }).join('') : ''}
           ${(hasRole('pipeline', 'revert') && canGoBack) ? `<button class="btn" onclick="updatePipelineStatus(${p.id},'${canGoBack}')">← 退回</button>` : ''}
-          ${(hasRole('pipeline', 'revert') && p.status !== 'departed') ? `<button class="btn" onclick="updatePipelineStatus(${p.id},'departed')" style="color:var(--danger)">× 离职</button>` : ''}
           <button class="btn" onclick="showPipelineEvents(${p.id},'${escapeHtml(p.worker_name)}')" title="服务记录">📋</button>
         </div>
       </div>`;
@@ -1502,10 +1561,22 @@ function togglePipelineView() {
 }
 
 async function updatePipelineStatus(pipelineId, newStatus) {
+  let reason = "";
+  // 终态必填原因
+  if (STATUS_REASON_REQUIRED.has(newStatus)) {
+    const prompt_text = STATUS_REASON_PROMPT[newStatus] || "请填写原因";
+    const v = window.prompt(`推进到【${STATUS_NAMES[newStatus]}】\n\n${prompt_text}：`);
+    if (v === null) return;  // 用户取消
+    reason = (v || "").trim();
+    if (!reason) {
+      alert("必须填写原因才能推进到该状态。");
+      return;
+    }
+  }
   try {
     const resp = await api("/api/pipeline/status", {
       method: "POST",
-      body: JSON.stringify({ pipeline_id: pipelineId, status: newStatus })
+      body: JSON.stringify({ pipeline_id: pipelineId, status: newStatus, reason: reason })
     });
     if (resp.ok) {
       loadPipelines();

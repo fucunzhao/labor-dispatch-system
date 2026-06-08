@@ -57,6 +57,14 @@ def ensure_demand_columns(conn):
         "has_shifts": "TEXT DEFAULT ''",
         "has_meal": "TEXT DEFAULT ''",
         "has_dorm": "TEXT DEFAULT ''",
+        "status": "TEXT DEFAULT 'active'",
+    })
+
+
+def ensure_pipeline_columns(conn):
+    ensure_table_columns(conn, "recruitment_pipeline", {
+        "outcome_reason": "TEXT DEFAULT ''",
+        "recommended_to_demand_id": "INTEGER DEFAULT 0",
     })
 
 
@@ -228,6 +236,7 @@ def init_db():
         })
         ensure_worker_columns(conn)
         ensure_demand_columns(conn)
+        ensure_pipeline_columns(conn)
         ensure_knowledge_columns(conn)
         # 迁移：给 pipeline 加全局活跃唯一索引（同一求职者不能同时存在两条活跃流程）
         # SQLite 不支持 ALTER TABLE ADD UNIQUE，只能创建唯一索引来模拟

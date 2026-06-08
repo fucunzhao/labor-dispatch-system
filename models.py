@@ -23,6 +23,7 @@ def row_to_demand(row):
         "hasMeal": row.get("has_meal", ""),
         "hasDorm": row.get("has_dorm", ""),
         "notes": row["notes"],
+        "status": row.get("status", "active") or "active",
     }
 
 
